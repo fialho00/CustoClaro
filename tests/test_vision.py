@@ -3,7 +3,7 @@ import unittest
 from decimal import Decimal
 from unittest.mock import patch
 
-from vision import evidence_power_values, parse_label_response, read_label
+from vision import answer_about_estimate, evidence_power_values, parse_label_response, read_label
 
 
 class GemmaOutputTests(unittest.TestCase):
@@ -96,6 +96,19 @@ class GemmaOutputTests(unittest.TestCase):
         self.assertEqual(len(arguments.kwargs["contents"]), 2)
         self.assertEqual(arguments.kwargs["contents"][1].inline_data.data, b"test-image")
 
+    def test_contextual_chat_sends_only_current_question_and_numbers(self):
+        with patch('google.genai.Client') as client:
+            client.return_value.__enter__.return_value.models.generate_content.return_value.text = 'O custo varia com a tarifa.'
+            answer = answer_about_estimate('Por que varia?', 'Custo mensal: R$ 20', api_key='test-only')
+        self.assertEqual(answer, 'O custo varia com a tarifa.')
+        args = client.return_value.__enter__.return_value.models.generate_content.call_args.kwargs
+        self.assertIn('Custo mensal: R$ 20', args['contents'])
+        self.assertIn('Por que varia?', args['contents'])
+        self.assertEqual(args['model'], 'gemma-4-26b-a4b-it')
+        with self.assertRaises(ValueError):
+            answer_about_estimate('x' * 801, 'context', api_key='test-only')
+
 
 if __name__ == "__main__":
     unittest.main()
+
