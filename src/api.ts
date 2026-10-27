@@ -1,6 +1,7 @@
 export type EstimateInput = {
   name: string;
   watts: number;
+  label_kwh_month?: number | null;
   minutes: number;
   days: number;
   units: number;
@@ -10,6 +11,8 @@ export type EstimateInput = {
 export type Estimate = {
   name: string;
   watts: string;
+  label_kwh_month: string | null;
+  method: "etiqueta_padronizada" | "potencia_constante";
   minutes: string;
   days: number;
   units: number;

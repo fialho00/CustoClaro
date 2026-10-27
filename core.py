@@ -76,6 +76,37 @@ def calculate_energy(
     )
 
 
+def calculate_label_energy(
+    *, monthly_kwh: object, tariff_per_kwh: object, units: int = 1
+) -> EnergyEstimate:
+    """A label's standardized monthly kWh is not equivalent to continuous watts.
+
+    Never scale standardized label consumption by guessed hours or days.
+    """
+    monthly_per_unit = as_decimal(monthly_kwh, "Consumo de etiqueta")
+    tariff = as_decimal(tariff_per_kwh, "Tarifa")
+    if not 0 < monthly_per_unit <= Decimal("1000000"):
+        raise ValueError("Consumo de etiqueta deve ser positivo e até 1.000.000 kWh/mês.")
+    if type(units) is not int or not 1 <= units <= 1000:
+        raise ValueError("Quantidade deve estar entre 1 e 1000.")
+    if not 0 <= tariff <= Decimal("1000"):
+        raise ValueError("Tarifa deve estar entre R$ 0 e R$ 1.000/kWh.")
+    monthly = monthly_per_unit * units
+    cost = monthly * tariff
+    return EnergyEstimate(
+        watts=Decimal(0),
+        hours_per_day=Decimal(0),
+        days_per_month=30,
+        units=units,
+        tariff_per_kwh=tariff,
+        daily_kwh=monthly / 30,
+        monthly_kwh=monthly,
+        monthly_brl=cost,
+        annual_kwh=monthly * 12,
+        annual_brl=cost * 12,
+    )
+
+
 def brl(value: object) -> str:
     amount = as_decimal(value, "Valor").quantize(
         Decimal("0.01"), rounding=ROUND_HALF_UP

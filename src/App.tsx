@@ -30,17 +30,19 @@ import {
   ShoppingBag,
   ShieldCheck,
   SlidersHorizontal,
+  Sparkles,
   Trash2,
   Wallet,
   X,
 } from "lucide-react";
 import { formatDecimal, formatPower, postJson, request } from "./api";
-import type {
-  Estimate, EstimateInput, HouseResult, ProductResult, ProductSearchResult, Reading,
-} from "./api";
+import type { Estimate, EstimateInput, HouseResult, ProductResult, ProductSearchResult, Reading } from "./api";
+import Explore from "./Explore";
+import type { ExploreContext, ExploreMode, Product } from "./Explore";
 
-type Screen = "home" | "nomnom" | "products" | "analyze" | "house" | "history";
-type Message = { role: "user" | "assistant"; text: string };
+type Screen = "home" | "nomnom" | "products" | "explore" | "analyze" | "house" | "history";
+type ToolAction = "products" | "compare" | "forecast" | "analyze" | "house";
+type Message = { role: "user" | "assistant"; text: string; action?: ToolAction; houseProposal?: EstimateInput };
 type SavedEstimate = { id: string; savedAt: string; estimate: Estimate };
 type TariffResponse = {
   utility: string;
@@ -50,6 +52,8 @@ type TariffResponse = {
   valid_until: string;
   notice: string;
 };
+type UtilityMatch = { utility: string; confidence: "alta"; basis: string; source: string };
+type ApproximateRegion = { city: string; state: string; distributor: UtilityMatch | null };
 
 const DEFAULT_DRAFT: EstimateInput = {
   name: "Aparelho",
@@ -63,7 +67,8 @@ const DEFAULT_DRAFT: EstimateInput = {
 const NAV: { id: Screen; label: string; icon: LucideIcon }[] = [
   { id: "home", label: "Início", icon: Home },
   { id: "nomnom", label: "Nom Nom · IA", icon: MessageCircle },
-  { id: "products", label: "Quanto isso consome?", icon: ShoppingBag },
+  { id: "explore", label: "Quanto isso consome?", icon: Search },
+  { id: "products", label: "Produtos e lojas", icon: ShoppingBag },
   { id: "analyze", label: "Analisar aparelho", icon: Camera },
   { id: "house", label: "Minha casa", icon: Home },
   { id: "history", label: "Histórico", icon: History },
@@ -76,6 +81,39 @@ function readSession<T>(key: string, fallback: T): T {
   } catch {
     return fallback;
   }
+}
+
+function readPersistent<T>(key: string, fallback: T): T {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : readSession(key, fallback);
+  } catch {
+    return readSession(key, fallback);
+  }
+}
+
+function validHouseItem(item: EstimateInput): boolean {
+  return Boolean(item.name.trim()) && item.name.length <= 120 &&
+    Number.isInteger(item.units) && item.units >= 1 && item.units <= 1000 &&
+    Number.isInteger(item.days) && item.days >= 1 && item.days <= 31 &&
+    Number.isFinite(item.tariff) && item.tariff >= 0 && item.tariff <= 1000 &&
+    (item.label_kwh_month != null
+      ? Number.isFinite(item.label_kwh_month) && item.label_kwh_month > 0 && item.label_kwh_month <= 1000000
+      : Number.isFinite(item.watts) && item.watts > 0 && item.watts <= 1000000 &&
+        Number.isFinite(item.minutes) && item.minutes >= 0 && item.minutes <= 1440);
+}
+
+function normalizeHouseItem(item: EstimateInput): EstimateInput {
+  // Decimal values are serialized as strings by the API; normalize before validation.
+  return {
+    name: String(item.name || ""),
+    watts: Number(item.watts),
+    label_kwh_month: item.label_kwh_month == null ? null : Number(item.label_kwh_month),
+    minutes: Number(item.minutes),
+    days: Number(item.days),
+    units: Number(item.units),
+    tariff: Number(item.tariff),
+  };
 }
 
 function ErrorNote({
@@ -185,7 +223,9 @@ export default function App() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [aiOnline, setAiOnline] = useState<boolean | null>(null);
-  const [draft, setDraft] = useState<EstimateInput>(DEFAULT_DRAFT);
+  const [draft, setDraft] = useState<EstimateInput>(() => ({
+    ...DEFAULT_DRAFT, tariff: readPersistent("custo-tariff", 0.9),
+  }));
   const [estimate, setEstimate] = useState<Estimate | null>(null);
   const [confirmed, setConfirmed] = useState(false);
   const [reading, setReading] = useState<Reading | null>(null);
@@ -193,13 +233,19 @@ export default function App() {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
   const [house, setHouse] = useState<EstimateInput[]>(() =>
-    readSession("custo-house", []),
+    readPersistent("custo-house", []),
   );
+  const [houseFormOpen, setHouseFormOpen] = useState(false);
+  const [editingHouseIndex, setEditingHouseIndex] = useState<number | null>(null);
+  const [houseDraft, setHouseDraft] = useState<EstimateInput>({ ...DEFAULT_DRAFT, name: "" });
   const [houseEstimate, setHouseEstimate] = useState<HouseResult | null>(null);
   const [history, setHistory] = useState<SavedEstimate[]>(() =>
     readSession("custo-history", []),
   );
   const [messages, setMessages] = useState<Message[]>([]);
+  const [exploreMode, setExploreMode] = useState<ExploreMode>("search");
+  const [exploreQuery, setExploreQuery] = useState("");
+  const [exploreContext, setExploreContext] = useState<ExploreContext>({ selected: null, products: [], forecast: null });
   const [question, setQuestion] = useState("");
   const [sending, setSending] = useState(false);
   const [productQuery, setProductQuery] = useState("");
@@ -214,12 +260,14 @@ export default function App() {
   const [cameraBusy, setCameraBusy] = useState(false);
   const [utilityQuery, setUtilityQuery] = useState("");
   const [distributors, setDistributors] = useState<string[]>([]);
-  const [selectedUtility, setSelectedUtility] = useState("");
-  const [locationText, setLocationText] = useState("");
-  const [tariffInfo, setTariffInfo] = useState(
-    "Exemplo: R$ 0,90/kWh. Ajuste pela sua fatura.",
-  );
+  const [selectedUtility, setSelectedUtility] = useState(() => readPersistent("custo-utility", ""));
+  const [locationText, setLocationText] = useState(() => readPersistent("custo-region", ""));
+  const [tariffInfo, setTariffInfo] = useState(() => readPersistent(
+    "custo-tariff-info", "Tarifa inicial ilustrativa. Identifique sua distribuidora para atualizar.",
+  ));
   const [settingsBusy, setSettingsBusy] = useState(false);
+  const [locationStatus, setLocationStatus] = useState("");
+  const geolocationAttempted = useRef(false);
   const cameraRef = useRef<HTMLInputElement>(null);
   const galleryRef = useRef<HTMLInputElement>(null);
   const cameraVideoRef = useRef<HTMLVideoElement>(null);
@@ -233,11 +281,27 @@ export default function App() {
   }, []);
   useEffect(() => {
     try {
-      sessionStorage.setItem("custo-house", JSON.stringify(house));
+      localStorage.setItem("custo-house", JSON.stringify(house));
     } catch {
-      /* session-only fallback */
+      /* The user can still simulate without browser storage. */
     }
   }, [house]);
+  useEffect(() => {
+    try {
+      localStorage.setItem("custo-tariff", JSON.stringify(draft.tariff));
+      localStorage.setItem("custo-utility", JSON.stringify(selectedUtility));
+      localStorage.setItem("custo-region", JSON.stringify(locationText));
+      localStorage.setItem("custo-tariff-info", JSON.stringify(tariffInfo));
+    } catch { /* Storage is optional. */ }
+  }, [draft.tariff, selectedUtility, locationText, tariffInfo]);
+  useEffect(() => {
+    // Reuse a location permission already granted, without prompting again.
+    if (geolocationAttempted.current || !navigator.geolocation || !navigator.permissions) return;
+    geolocationAttempted.current = true;
+    navigator.permissions.query({ name: "geolocation" }).then((permission) => {
+      if (permission.state === "granted") detectLocation();
+    }).catch(() => { /* The user can request location via the visible button. */ });
+  }, []);
   useEffect(() => {
     try {
       sessionStorage.setItem("custo-history", JSON.stringify(history));
@@ -322,6 +386,22 @@ export default function App() {
       days: previous.days,
     }));
     navigate("analyze");
+  }
+
+  function openTool(action: ToolAction, query = "") {
+    if (action === "house") {
+      navigate("house");
+      return;
+    }
+    if (action === "analyze") {
+      navigate("analyze");
+      return;
+    }
+    if (action === "compare") setExploreMode("compare");
+    else if (action === "forecast") setExploreMode("forecast");
+    else setExploreMode("search");
+    if (query && action === "products") setExploreQuery(query.slice(0, 120));
+    navigate("explore");
   }
 
   async function processFile(file: File) {
@@ -454,10 +534,14 @@ export default function App() {
     setMessages((previous) => [...previous, { role: "user", text }]);
     setSending(true);
     try {
-      const data = await postJson<{ reply: string }>("/api/chat", {
+      const data = await postJson<{ reply: string; action?: ToolAction; house_proposal?: EstimateInput }>("/api/chat", {
         question: text,
         appliance: confirmed && draft.watts > 0 ? draft : null,
         house,
+        tariff: draft.tariff,
+        utility: selectedUtility,
+        region: locationText,
+        product_context: exploreContext,
         products: products.map((product) => ({
           name: product.name,
           monthly_kwh: product.monthly_kwh,
@@ -466,7 +550,7 @@ export default function App() {
       });
       setMessages((previous) => [
         ...previous,
-        { role: "assistant", text: data.reply },
+        { role: "assistant", text: data.reply, action: data.action, houseProposal: data.house_proposal },
       ]);
     } catch {
       setMessages((previous) => [
@@ -482,8 +566,63 @@ export default function App() {
   }
 
   function addHouse() {
-    if (!estimate || house.length >= 30) return;
+    if (!estimate || house.length >= 30 || !validHouseItem(draft)) return;
     setHouse((previous) => [...previous, { ...draft }]);
+    setMessages((previous) => [...previous, { role: "assistant", text: `${draft.name} foi adicionado à sua casa. Já atualizei a previsão mensal. Você pode me perguntar qual aparelho consome mais.` }]);
+    navigate("house");
+  }
+  function addSelectedProduct(product: Product, hours: number, days: number) {
+    if (house.length >= 30) {
+      setError("Sua casa já possui o limite de 30 aparelhos.");
+      return;
+    }
+    const item: EstimateInput = {
+      name: product.name,
+      watts: Number(product.watts) || 0,
+      label_kwh_month: product.label_kwh_month == null ? null : Number(product.label_kwh_month),
+      minutes: hours * 60,
+      days,
+      units: 1,
+      tariff: draft.tariff,
+    };
+    if (!validHouseItem(item)) {
+      setError("Esse produto ainda não tem um valor energético confiável. Informe a potência manualmente.");
+      return;
+    }
+    setHouse((previous) => [...previous, item]);
+    setMessages((previous) => [...previous, { role: "assistant", text: `Adicionei ${product.name} à Minha casa com os valores da simulação. Você pode revisar os dados e ajustar a quantidade.` }]);
+    navigate("house");
+  }
+  function openHouseForm(index: number | null = null) {
+    setEditingHouseIndex(index);
+    setHouseDraft(index === null ? { ...DEFAULT_DRAFT, name: "", tariff: draft.tariff } : { ...house[index] });
+    setHouseFormOpen(true);
+  }
+  function commitHouseDraft() {
+    const item = { ...houseDraft, name: houseDraft.name.trim(), tariff: draft.tariff };
+    if (!validHouseItem(item)) {
+      setError("Informe nome, consumo e uso válidos (até 24 horas/dia). Confira também a quantidade.");
+      return;
+    }
+    if (editingHouseIndex === null && house.length >= 30) {
+      setError("Limite de 30 aparelhos atingido.");
+      return;
+    }
+    setHouse((previous) => editingHouseIndex === null
+      ? [...previous, item]
+      : previous.map((current, index) => index === editingHouseIndex ? item : current));
+    setHouseFormOpen(false);
+    setEditingHouseIndex(null);
+    setError("");
+  }
+  function confirmHouseProposal(item: EstimateInput) {
+    const next = { ...normalizeHouseItem(item), tariff: draft.tariff };
+    if (!validHouseItem(next) || house.length >= 30) {
+      setError("Não foi possível adicionar. Revise o limite e os dados do aparelho.");
+      return;
+    }
+    setHouse((previous) => [...previous, next]);
+    setMessages((previous) => [...previous, { role: "assistant", text: `${next.name} foi incluído. A previsão de Minha casa foi recalculada com a sua tarifa.` }]);
     navigate("house");
   }
   function saveCurrent() {
@@ -530,26 +669,24 @@ export default function App() {
     if (!selectedUtility) return;
     setSettingsBusy(true);
     try {
-      const data = await request<TariffResponse>(
-        "/api/tariff?utility=" + encodeURIComponent(selectedUtility),
-      );
-      const rate = Number(data.total);
-      updateTariff(rate);
-      setTariffInfo(
-        "ANEEL · " +
-          data.utility +
-          (data.flag
-            ? " · bandeira " + data.flag
-            : " · bandeira não confirmada") +
-          " · até " +
-          data.valid_until +
-          ". Impostos não incluídos.",
-      );
+      await applyOfficialUtility(selectedUtility);
     } catch (exc) {
       setError((exc as Error).message);
     } finally {
       setSettingsBusy(false);
     }
+  }
+  async function applyOfficialUtility(name: string) {
+    const data = await request<TariffResponse>(
+      "/api/tariff?utility=" + encodeURIComponent(name),
+    );
+    updateTariff(Number(data.total));
+    setSelectedUtility(data.utility);
+    setTariffInfo(
+      "ANEEL · " + data.utility + (data.flag ? " · bandeira " + data.flag : " · bandeira não confirmada") +
+      " · válido até " + data.valid_until + ". Tributos e iluminação não incluídos.",
+    );
+    setLocationStatus("Distribuidora identificada e tarifa pública aplicada.");
   }
   function detectLocation() {
     if (!navigator.geolocation) {
@@ -557,10 +694,11 @@ export default function App() {
       return;
     }
     setSettingsBusy(true);
+    setLocationStatus("Identificando sua região e distribuidora...");
     navigator.geolocation.getCurrentPosition(
       async (position) => {
         try {
-          const data = await postJson<{ city: string; state: string }>(
+          const data = await postJson<ApproximateRegion>(
             "/api/location",
             {
               latitude: Math.round(position.coords.latitude * 100) / 100,
@@ -568,8 +706,19 @@ export default function App() {
             },
           );
           setLocationText([data.city, data.state].filter(Boolean).join(", "));
+          if (data.distributor?.confidence === "alta") {
+            setSelectedUtility(data.distributor.utility);
+            try {
+              await applyOfficialUtility(data.distributor.utility);
+            } catch {
+              setLocationStatus(`Região identificada: ${data.distributor.utility}. Não consegui consultar a tarifa ANEEL agora.`);
+            }
+          } else {
+            setLocationStatus("Região identificada, mas a distribuidora não pode ser confirmada automaticamente. Consulte sua fatura.");
+          }
         } catch (exc) {
           setError((exc as Error).message);
+          setLocationStatus("");
         } finally {
           setSettingsBusy(false);
         }
@@ -579,6 +728,7 @@ export default function App() {
           "Não foi possível acessar a localização. Você pode procurar a distribuidora manualmente.",
         );
         setSettingsBusy(false);
+        setLocationStatus("Sem permissão para localização. A busca por distribuidora continua disponível.");
       },
       { enableHighAccuracy: false, timeout: 10000 },
     );
@@ -587,20 +737,23 @@ export default function App() {
   const title =
     screen === "home"
       ? "Visão geral"
+      : screen === "explore"
+        ? "Quanto isso consome?"
       : screen === "nomnom"
         ? "Nom Nom"
         : screen === "products"
-          ? "Quanto isso consome?"
+          ? "Produtos e lojas"
       : screen === "analyze"
         ? "Analisar aparelho"
         : screen === "house"
           ? "Energia da minha casa"
           : "Histórico";
-  const suggestions = [
-    "Como posso economizar energia?",
-    "Qual aparelho consome mais?",
-    "Compare os produtos pesquisados",
-  ];
+  const suggestions =
+    screen === "house"
+      ? ["Qual aparelho mais pesa na conta?", "Quanto minha casa gasta?", "Como adicionar um aparelho?"]
+      : screen === "analyze" && estimate
+        ? ["E se eu usar só 5 minutos?", "Como esse valor foi calculado?"]
+        : ["Como posso economizar energia?", "Qual aparelho consome mais?", "Compare os produtos pesquisados"];
 
   return (
     <div className="shell">
@@ -704,12 +857,18 @@ export default function App() {
                       CUSTOCLARO · INTELIGÊNCIA EM ENERGIA
                     </span>
                     <h2>
-                      Entenda quanto sua <em>energia custa.</em>
+                      Sua energia, <em>explicada pela IA.</em>
                     </h2>
                     <p>
-                      Fotografe uma etiqueta, descubra o consumo e converse com
-                      a IA.
+                      Pergunte sobre qualquer aparelho, pesquise pelo modelo e
+                      encontre maneiras de gastar menos.
                     </p>
+                    <button className="hero-research" onClick={() => openTool("products")}>
+                      <Search size={19} /> Quanto isso consome? <ArrowRight size={18} />
+                    </button>
+                    <button className="text-link" onClick={() => openTool("house")}>
+                      <Home size={16} /> Montar minha casa e prever a conta <ArrowRight size={16} />
+                    </button>
                     <div className="upload-actions">
                       <button
                         className="upload-action primary"
@@ -718,7 +877,7 @@ export default function App() {
                         <Camera size={27} />
                         <span>
                           <strong>Tirar foto</strong>
-                          <small>Use a câmera do seu aparelho</small>
+                          <small>Deixe a IA analisar a etiqueta</small>
                         </span>
                         <ChevronRight size={18} />
                       </button>
@@ -729,7 +888,7 @@ export default function App() {
                         <ImagePlus size={27} />
                         <span>
                           <strong>Enviar imagem</strong>
-                          <small>Escolha uma foto da etiqueta</small>
+                          <small>Descubra o consumo com uma foto</small>
                         </span>
                         <ChevronRight size={18} />
                       </button>
@@ -794,6 +953,13 @@ export default function App() {
                   </div>
                 </section>
               </>
+            )}
+
+            {screen === "explore" && (
+              <Explore mode={exploreMode} setMode={setExploreMode} prefill={exploreQuery}
+                tariff={draft.tariff} onManual={startManual} onContextChange={setExploreContext}
+                onAddToHouse={addSelectedProduct}
+                onAssistantNote={(text) => setMessages((previous) => [...previous, { role: "assistant", text }])} />
             )}
 
             {screen === "analyze" && (
@@ -1001,9 +1167,27 @@ export default function App() {
 
             {screen === "house" && (
               <>
-                <p className="page-description">
-                  Compare aparelhos e descubra onde economizar.
-                </p>
+                <section className="card house-intro">
+                  <div className="house-intro-copy">
+                    <span className="eyebrow"><Sparkles size={15} /> SUA CASA COM AJUDA DA IA</span>
+                    <h2>Vamos descobrir para onde vai sua energia?</h2>
+                    <p>Me diga quais aparelhos você tem, envie fotos das etiquetas ou pesquise os modelos. Eu organizo tudo para você acompanhar o gasto estimado.</p>
+                    <div className="house-quick-actions">
+                      <button className="primary-button" onClick={() => openTool("products")}><Search size={17} /> Buscar por nome</button>
+                      <button className="outline-button" onClick={() => galleryRef.current?.click()}><Camera size={17} /> Ler etiqueta</button>
+                      <button className="outline-button" onClick={() => openHouseForm()}><Plus size={17} /> Informar watts</button>
+                    </div>
+                  </div>
+                  <div className="house-location">
+                    <span><MapPin size={17} /> Sua tarifa de energia</span>
+                    <strong>{selectedUtility || "Distribuidora a identificar"}</strong>
+                    <small>{locationText || "Localização ainda não informada"} · R$ {formatDecimal(draft.tariff)}/kWh</small>
+                    {!selectedUtility && <small>Valor inicial ilustrativo, não tarifa oficial.</small>}
+                    {locationStatus && <p>{locationStatus}</p>}
+                    <button className="text-link" onClick={detectLocation} disabled={settingsBusy}><MapPin size={14} /> {settingsBusy ? "Identificando..." : "Detectar pela minha região"}</button>
+                    <button className="text-link" onClick={() => setSettingsOpen(true)}><Settings2 size={14} /> Corrigir distribuidora/tarifa</button>
+                  </div>
+                </section>
                 <div className="summary-grid">
                   <div className="card summary-card">
                     <span>
@@ -1014,7 +1198,7 @@ export default function App() {
                     </strong>
                     <small>
                       {house.length
-                        ? house.length + " aparelho(s) na simulação"
+                        ? house.reduce((total, item) => total + item.units, 0) + " unidade(s) na simulação"
                         : "Adicione seus aparelhos"}
                     </small>
                   </div>
@@ -1050,10 +1234,10 @@ export default function App() {
                             <span className="device-icon small">
                               <Bolt size={20} />
                             </span>
-                            <strong>{item.name}</strong>
+                            <strong>{item.units > 1 ? item.units + "× " : ""}{item.name}</strong>
                           </span>
-                          <span>{formatPower(Number(item.watts))} W</span>
-                          <span>{item.minutes} min/dia</span>
+                          <span>{item.method === "etiqueta_padronizada" ? "Etiqueta" : formatPower(Number(item.watts)) + " W"}</span>
+                          <span>{item.method === "etiqueta_padronizada" ? "kWh/mês" : item.minutes + " min/dia"}</span>
                           <span className="cost-cell">
                             <strong>{item.monthly_brl_label}</strong>
                             <span className="cost-track">
@@ -1075,17 +1259,10 @@ export default function App() {
                               />
                             </span>
                           </span>
-                          <button
-                            aria-label={"Remover " + item.name}
-                            className="icon-button delete-button"
-                            onClick={() =>
-                              setHouse((previous) =>
-                                previous.filter((_, i) => i !== index),
-                              )
-                            }
-                          >
-                            <Trash2 size={18} />
-                          </button>
+                          <div className="house-row-actions">
+                            <button aria-label={"Editar " + item.name} className="icon-button" onClick={() => openHouseForm(index)}><Pencil size={16} /></button>
+                            <button aria-label={"Remover " + item.name} className="icon-button delete-button" onClick={() => setHouse((previous) => previous.filter((_, i) => i !== index))}><Trash2 size={17} /></button>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -1099,13 +1276,22 @@ export default function App() {
                       </p>
                     </div>
                   )}
-                  <button className="add-appliance" onClick={startManual}>
+                  <button className="add-appliance" onClick={() => openHouseForm()}>
                     <Plus size={20} /> Adicionar aparelho
                   </button>
                 </section>
+                {house.length > 0 && houseEstimate && (
+                  <section className="card house-insight">
+                    <Sparkles size={21} />
+                    <div>
+                      <strong>Um ponto de atenção</strong>
+                      <p>{[...houseEstimate.items].sort((a, b) => Number(b.monthly_brl) - Number(a.monthly_brl))[0].name} representa o maior gasto dos aparelhos cadastrados. Pergunte à IA como reduzi-lo.</p>
+                      <button className="text-link" onClick={() => { navigate("nomnom"); void sendMessage("Como reduzir o consumo do aparelho que mais gasta na minha casa?"); }}>Perguntar à Nom Nom <ArrowRight size={14}/></button>
+                    </div>
+                  </section>
+                )}
                 <p className="fineprint">
-                  A conta real pode incluir consumos não cadastrados, impostos e
-                  tarifas específicas.
+                  Os itens ficam salvos apenas neste navegador, mesmo após fechá-lo. Esta não é uma leitura do medidor: aparelhos ausentes, tributos, iluminação pública e variações de uso não estão incluídos.
                 </p>
               </>
             )}
@@ -1292,9 +1478,15 @@ export default function App() {
                     <img src="/nomnom-logo.png" alt="" />
                   </div>
                   <div className="bubble assistant-bubble">
-                    Oi! Eu sou a Nom Nom. Posso analisar uma etiqueta, explicar
-                    o consumo da sua casa e comparar a eficiência de aparelhos.
-                    O que você gostaria de descobrir?
+                    Oi! Sou a Nom Nom. Posso pesquisar o consumo dos aparelhos,
+                    comparar modelos, montar sua casa e prever seu gasto mensal.
+                    Escolha uma ação ou me pergunte naturalmente.
+                    <div className="chat-actions">
+                      <button onClick={() => openTool("house")}>Montar minha casa <ArrowRight size={15}/></button>
+                      <button onClick={() => openTool("products")}>Quanto isso consome? <ArrowRight size={15}/></button>
+                      <button onClick={() => openTool("compare")}>Comparar aparelhos <ArrowRight size={15}/></button>
+                      <button onClick={() => openTool("forecast")}>Previsão mensal <ArrowRight size={15}/></button>
+                    </div>
                   </div>
                 </div>
               )}
@@ -1305,7 +1497,34 @@ export default function App() {
                       <img src="/nomnom-logo.png" alt="" />
                     </span>
                   )}
-                  <div className="bubble">{message.text}</div>
+                  <div className="bubble">
+                    {message.text}
+                    {message.role === "assistant" && message.action && (
+                      <div className="chat-actions">
+                        <button onClick={() => openTool(message.action!, message.action === "products" ? messages[index - 1]?.text : "")}>
+                          {message.action === "products" ? "Pesquisar produto" :
+                            message.action === "compare" ? "Abrir comparador" :
+                              message.action === "forecast" ? "Abrir previsão" :
+                                message.action === "house" ? "Abrir Minha casa" : "Analisar etiqueta"}
+                          <ArrowRight size={15}/>
+                        </button>
+                      </div>
+                    )}
+                    {message.role === "assistant" && message.houseProposal && (
+                      <div className="chat-actions">
+                        <button onClick={() => {
+                          confirmHouseProposal(message.houseProposal!);
+                          setMessages((previous) => previous.map((current, i) => i === index ? { ...current, houseProposal: undefined } : current));
+                        }}><Check size={15} /> Confirmar e adicionar</button>
+                        <button onClick={() => {
+                          navigate("house");
+                          setEditingHouseIndex(null);
+                          setHouseDraft({ ...normalizeHouseItem(message.houseProposal!), tariff: draft.tariff });
+                          setHouseFormOpen(true);
+                        }}><Pencil size={15} /> Revisar dados</button>
+                      </div>
+                    )}
+                  </div>
                 </div>
               ))}
               {sending && (
@@ -1332,7 +1551,12 @@ export default function App() {
                 {suggestions.map((label) => (
                   <button
                     key={label}
-                    onClick={() => sendMessage(label)}
+                    onClick={() => {
+                      if (label === "Quanto isso consome?") openTool("products");
+                      else if (label === "Comparar aparelhos") openTool("compare");
+                      else if (label === "Previsão mensal") openTool("forecast");
+                      else void sendMessage(label);
+                    }}
                     disabled={sending}
                   >
                     {label}
@@ -1400,6 +1624,36 @@ export default function App() {
         accept="image/png,image/jpeg,image/webp"
         onChange={onFile}
       />
+
+      {houseFormOpen && (
+        <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setHouseFormOpen(false); }}>
+          <div className="settings-modal house-editor" role="dialog" aria-modal="true" aria-labelledby="house-editor-title">
+            <div className="modal-head">
+              <div><h2 id="house-editor-title">{editingHouseIndex === null ? "Adicionar aparelho à casa" : "Editar aparelho"}</h2>
+                <p>Confirme os dados. A IA usará estes números para calcular o gasto.</p></div>
+              <button className="icon-button" aria-label="Fechar" onClick={() => setHouseFormOpen(false)}><X size={21}/></button>
+            </div>
+            {error && <ErrorNote message={error} close={() => setError("")}/>}
+            <div className="input-grid house-editor-fields">
+              <label>Nome do aparelho<input maxLength={120} value={houseDraft.name} onChange={(event) => setHouseDraft((current) => ({ ...current, name: event.target.value }))} placeholder="Ex.: ventilador do quarto" /></label>
+              {houseDraft.label_kwh_month != null ? (
+                <label>Consumo declarado (kWh/mês)<input type="number" min="0.01" max="1000000" step="any" value={houseDraft.label_kwh_month} onChange={(event) => setHouseDraft((current) => ({ ...current, label_kwh_month: Number(event.target.value) }))}/></label>
+              ) : (
+                <label>Potência (W)<input type="number" min="1" max="1000000" value={houseDraft.watts || ""} placeholder="Ex.: 100" onChange={(event) => setHouseDraft((current) => ({ ...current, watts: Number(event.target.value) }))}/></label>
+              )}
+              {houseDraft.label_kwh_month == null && <>
+                <label>Minutos de uso por dia<input type="number" min="0" max="1440" value={houseDraft.minutes} onChange={(event) => setHouseDraft((current) => ({ ...current, minutes: Number(event.target.value) }))}/></label>
+                <label>Dias de uso por mês<input type="number" min="1" max="31" value={houseDraft.days} onChange={(event) => setHouseDraft((current) => ({ ...current, days: Number(event.target.value) }))}/></label>
+              </>}
+              <label>Quantidade de aparelhos<input type="number" min="1" max="1000" value={houseDraft.units} onChange={(event) => setHouseDraft((current) => ({ ...current, units: Number(event.target.value) }))}/></label>
+            </div>
+            {houseDraft.label_kwh_month != null && <p className="setting-note">Etiquetas com kWh/mês usam a condição padronizada do fabricante; não multiplicamos esse valor pelas horas informadas.</p>}
+            <p className="setting-note">Tarifa considerada: R$ {formatDecimal(draft.tariff)}/kWh. Você pode alterá-la nas configurações.</p>
+            <div className="house-editor-footer"><button className="outline-button" onClick={() => setHouseFormOpen(false)}>Cancelar</button>
+              <button className="primary-button" onClick={commitHouseDraft}><Check size={17}/> {editingHouseIndex === null ? "Adicionar à minha casa" : "Salvar alterações"}</button></div>
+          </div>
+        </div>
+      )}
 
       {settingsOpen && (
         <div
@@ -1475,8 +1729,7 @@ export default function App() {
                 <MapPin size={18} /> Sua região
               </h3>
               <p>
-                Localização opcional. A região não identifica automaticamente a
-                distribuidora da sua conta.
+                A detecção usa sua localização atual aproximada, com sua permissão. Confirme se ela corresponde à sua casa. Aplicamos automaticamente a tarifa pública apenas quando há correspondência segura da distribuidora.
               </p>
               <button
                 className="outline-button"
@@ -1486,6 +1739,8 @@ export default function App() {
                 <MapPin size={17} />{" "}
                 {locationText || "Identificar região aproximada"}
               </button>
+              {locationStatus && <p className="setting-note">{locationStatus}</p>}
+              {selectedUtility && <p className="setting-note">Distribuidora atual: <strong>{selectedUtility}</strong></p>}
               <div className="utility-search">
                 <input
                   placeholder="Distribuidora na sua fatura"

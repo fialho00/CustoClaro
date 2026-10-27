@@ -2,7 +2,7 @@
 
 Uma etiqueta elétrica vira uma estimativa clara de consumo. Projeto de Alexandre Bezerra, Maria Eduarda e Gabriel Fialho para o Hack Day.
 
-O aplicativo tem interface **React + Vite**, com design responsivo escuro, tela inicial para fotografar etiquetas, cálculo revisável, **Minha casa**, histórico de simulações e a IA **Nom Nom** em destaque. O backend **FastAPI** reaproveita os módulos Python originais de matemática, leitura por IA e consulta de tarifas. O antigo protótipo Streamlit continua em `app.py`, mas não é mais a interface principal.
+O aplicativo tem interface **React + Vite**, leitura de etiquetas com câmera, cálculo revisável, **Minha casa**, pesquisa e comparação de modelos e lojas, histórico e **Nom Nom**, a assistente dedicada a energia. A aba **Quanto isso consome?** permite pesquisa, previsão e comparação; **Produtos e lojas** consulta ofertas. A Nom Nom oferece acesso a essas ferramentas e prepara cadastros na casa mediante confirmação. O backend **FastAPI** reaproveita os módulos Python de matemática, leitura por IA e consulta de tarifas. O antigo protótipo Streamlit continua em `app.py`, mas não é mais a interface principal.
 
 ## Objetivo do CustoClaro
 
@@ -42,6 +42,9 @@ A identidade visual usa verde-petróleo, verde-menta e amarelo elétrico. O masc
 2. Abra `Executavel.bat`. Na primeira vez, aguarde instalar as dependências Python. O script usa a interface compilada incluída no repositório e abre o navegador em `http://127.0.0.1:8501` ou na próxima porta livre, se ela já estiver ocupada.
 3. Se você já possui `GEMINI_API_KEY` no ambiente, ela é usada automaticamente. O iniciador também reconhece a chave privada em `Documentos/.env` (`%USERPROFILE%\Documents\.env`) **sem copiar esse arquivo para o projeto**.
 4. Toque em **Tirar foto** ou **Enviar imagem**, confira a potência extraída da placa de dados (W ou kW), confirme e ajuste o tempo de uso. Também é possível informar os watts manualmente.
+5. Para pesquisar um eletrodoméstico pelo nome, abra **Quanto isso consome?**, procure a marca e o modelo e confira a fonte antes de escolher **Calcular gasto**. O comparador aceita filtros por consumo e preço, inclusive preço informado manualmente. A aba **Produtos e lojas** oferece pesquisa e filtros específicos de ofertas.
+6. Em **Minha casa**, adicione aparelhos por busca, foto ou formulário. O assistente também entende frases com dados explícitos, como **"Adicione 2 ventiladores de 80 W por 8 horas por dia"**, e mostra uma prévia para confirmação. A lista persiste no navegador; não exige cadastro.
+7. Para tentar identificar a distribuidora, clique em **Detectar pela minha região** e autorize a localização. Se já houver permissão concedida, a tentativa ocorre automaticamente. A distribuidora é reconhecida automaticamente **apenas em regiões com correspondência verificada** (inicialmente Distrito Federal → Neoenergia Brasília). Em outros casos, confirme a distribuidora nas configurações.
 
 A câmera não é ativada até o usuário tocar em **Tirar foto**. O envio reduz a imagem e remove metadados EXIF. A chave de API não aparece em nenhuma tela nem é enviada ao navegador.
 
@@ -86,16 +89,20 @@ O frontend chama `/api/*`, e a função Python em `api/index.py` calcula resulta
 2. A IA extrai potência e mostra o trecho da etiqueta usado. Sem evidência confiável, o usuário informa a potência manualmente.
 3. O cálculo determinístico Python usa `kWh/mês = (W ÷ 1.000) × (minutos/dia ÷ 60) × dias × quantidade` e `R$/mês = kWh/mês × tarifa`.
 4. A pessoa compara tempos de uso, adiciona aparelhos à casa e conversa com o assistente sobre a simulação. Perguntas numéricas previsíveis usam o cálculo local; perguntas abertas podem usar IA.
+5. A função **Quanto isso consome?** usa pesquisa web embasada pelo Gemini, com preferência por dados de fabricante/Inmetro. Retorna apenas candidatos com fonte e potência ou consumo mensal informado; o usuário deve conferir essas referências.
+6. A **Previsão mensal** calcula a partir de potência e horas de uso **ou**, quando disponível, do consumo mensal padronizado da etiqueta. Esses métodos não devem ser misturados: o segundo não é escalado linearmente com o tempo de uso. O **Comparador** apresenta consumo, preço disponível e custo total estimado de compra + cinco anos de energia.
+7. **Minha casa** calcula o consumo agregado com as duas metodologias, incluindo quantidade de unidades. O chat recebe o inventário em qualquer aba e pode mostrar o maior custo e sugestões. Toda inclusão proposta pelo chat requer confirmação explícita.
 
-Tarifa padrão de R$ 0,90/kWh é **apenas um exemplo**. A pessoa pode informar sua tarifa ou escolher uma distribuidora da ANEEL nas configurações. A geolocalização é opcional e **não identifica de forma inequívoca a distribuidora da conta**. Impostos, tributos, encargos municipais, bandeiras não confirmadas, potência variável e ciclos de funcionamento podem fazer a conta real ser diferente da estimativa.
+Tarifa padrão de R$ 0,90/kWh é **apenas um exemplo**. A pessoa pode informar sua tarifa ou escolher uma distribuidora da ANEEL nas configurações. A localização identifica a região, não diretamente a rede elétrica ou o titular da fatura; a correspondência só é aplicada automaticamente em áreas de concessão sem ambiguidade documentada. Impostos, tributos, encargos municipais, bandeiras não confirmadas, potência variável e ciclos de funcionamento podem fazer a conta real ser diferente da estimativa.
 
 ## Privacidade e limites
 
 - A chave Gemini fica no ambiente do servidor. O app não a solicita em campos públicos.
 - Fotos não são persistidas pelo backend; uma cópia compactada e sem EXIF é enviada à API Gemini apenas após a pessoa escolher a imagem.
-- Histórico e lista da casa ficam apenas em `sessionStorage` do navegador, sem conta de usuário nem sincronização.
+- A lista de **Minha casa**, a tarifa e o nome da distribuidora ficam em `localStorage`, inclusive após fechar o navegador. O histórico de análises e as pesquisas temporárias continuam em `sessionStorage`. Não há conta de usuário, sincronização entre aparelhos nem armazenamento do inventário no servidor.
 - No chat, perguntas abertas podem enviar à IA a mensagem e dados numéricos necessários da simulação. O histórico completo da conversa não é enviado por padrão.
-- A localização, quando permitida, é arredondada a duas casas decimais antes da consulta de cidade/estado; o serviço externo pode ficar indisponível.
+- A pesquisa por nome usa Google Search Grounding no Gemini, depende de disponibilidade e da cota do projeto Google e **pode gerar cobranças** conforme o plano. Especificações ou preços de terceiros não são garantidos; dados ausentes permanecem vazios. Os modelos comparados ficam somente na sessão do navegador.
+- A localização, quando permitida, é arredondada a duas casas decimais antes da consulta de cidade/estado; o serviço externo pode ficar indisponível. As coordenadas não são persistidas. O navegador exige a permissão do visitante, caso não tenha sido concedida anteriormente.
 - A estimativa não substitui medição de consumo nem análise da fatura.
 
 O antigo protótipo pode ser aberto à parte com `python -m streamlit run app.py` após instalar `requirements-streamlit.txt`.

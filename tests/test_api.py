@@ -42,6 +42,22 @@ class WebApiTests(unittest.TestCase):
         self.assertEqual(response.json()['total_brl_label'], 'R$ 119,79')
         self.assertEqual(response.json()['total_kwh_label'], '133,10 kWh')
 
+    def test_house_combines_label_consumption_and_power_without_double_counting(self):
+        response = client.post('/api/house', json=[
+            {'name': 'Refrigerador', 'label_kwh_month': 42, 'units': 2, 'tariff': .8,
+             'watts': 1000, 'minutes': 1440},
+            {'name': 'Lâmpada', 'watts': 10, 'minutes': 300, 'tariff': .8},
+        ])
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['total_kwh_label'], '85,50 kWh')
+        self.assertEqual(response.json()['total_brl_label'], 'R$ 68,40')
+        self.assertEqual(response.json()['items'][0]['method'], 'etiqueta_padronizada')
+        self.assertEqual(response.json()['items'][0]['label_kwh_month'], '42')
+
+    def test_house_label_invalid_values_rejected(self):
+        response = client.post('/api/house', json=[{'label_kwh_month': -2, 'watts': 0}])
+        self.assertEqual(response.status_code, 422)
+
     def test_rejects_invalid_power_and_oversized_house(self):
         response = client.post('/api/estimate', json={'watts': -1})
         self.assertEqual(response.status_code, 422)
@@ -67,6 +83,45 @@ class WebApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn('Geladeira', response.json()['reply'])
         self.assertIn('R$ 77,76', response.json()['reply'])
+
+    def test_chat_can_propose_but_not_silently_save_a_house_appliance(self):
+        response = client.post('/api/chat', json={
+            'question': 'Adicione 2 ventiladores de 80 W por 8 horas por dia à minha casa',
+            'tariff': .9,
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['source'], 'calculo')
+        self.assertEqual(response.json()['house_proposal']['name'], 'ventiladores')
+        self.assertEqual(response.json()['house_proposal']['units'], 2)
+        self.assertIn('R$ 34,56', response.json()['reply'])
+
+    def test_chat_uses_selected_tariff_for_a_new_house_item(self):
+        response = client.post('/api/chat', json={
+            'question': 'Adicione ventilador de 100 W por 1 hora por dia',
+            'tariff': .5,
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('R$ 1,50', response.json()['reply'])
+
+    def test_chat_house_action_is_not_hidden_by_existing_house(self):
+        response = client.post('/api/chat', json={
+            'question': 'Como adicionar aparelho na minha casa?',
+            'house': [{'name': 'Lâmpada', 'watts': 10, 'minutes': 60}],
+        })
+        self.assertEqual(response.json()['action'], 'house')
+
+    def test_chat_house_and_distributor_tools(self):
+        response = client.post('/api/chat', json={'question': 'Como adicionar um aparelho na minha casa?'})
+        self.assertEqual(response.json()['action'], 'house')
+        self.assertEqual(client.post('/api/chat', json={
+            'question': 'Qual minha distribuidora?', 'utility': 'Neoenergia Brasília'
+        }).json()['source'], 'calculo')
+
+    @patch('api.index.reverse_location', return_value=('Brasília', 'Distrito Federal'))
+    def test_location_detects_verified_distributor(self, _geocode):
+        response = client.post('/api/location', json={'latitude': -15.8, 'longitude': -47.9})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['distributor']['utility'], 'Neoenergia Brasília')
 
     def test_nom_nom_refuses_topics_outside_electric_energy(self):
         for question in ('Quais são as raças de cachorros?', 'Conte uma piada', 'Qual time ganhou o futebol?'):

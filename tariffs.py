@@ -7,11 +7,30 @@ from datetime import date
 from decimal import Decimal
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
+import unicodedata
 
 RESOURCE = 'fcf2906c-7c32-4b9b-a637-054e7a5234f4'
 FLAG_RESOURCE = '0591b8f6-fe54-437b-b72b-1aa2efd46e42'
 SOURCE = 'https://dadosabertos.aneel.gov.br/dataset/tarifas-distribuidoras-energia-eletrica'
 API = 'https://dadosabertos.aneel.gov.br/api/3/action/datastore_search'
+
+
+def identify_utility(city: str, state: str) -> dict | None:
+    """Return only verified, unambiguous coverage; never guess from an IP.
+
+    The ANEEL distribution map contains municipalities with multiple operators.
+    Expand this mapping only with documented concession areas and tests.
+    """
+    normalized = ''.join(c for c in unicodedata.normalize('NFKD', state.casefold()) if not unicodedata.combining(c))
+    normalized = normalized.strip()
+    if normalized in {'distrito federal', 'federal district', 'df'}:
+        return {
+            'utility': 'Neoenergia Brasília',
+            'confidence': 'alta',
+            'basis': 'Área de concessão do Distrito Federal (antiga CEB-D).',
+            'source': 'https://ri.neoenergia.com/a-companhia/perfil-corporativo-e-historico/',
+        }
+    return None
 
 
 @dataclass(frozen=True)

@@ -2,9 +2,15 @@ from datetime import date
 from decimal import Decimal
 from unittest import TestCase
 from unittest.mock import patch
-from tariffs import current_flag, parse_residential_tariff
+from tariffs import current_flag, identify_utility, parse_residential_tariff
 
 class TariffTests(TestCase):
+    def test_only_verified_regions_are_identified(self):
+        self.assertEqual(identify_utility('Brasília', 'Distrito Federal')['utility'], 'Neoenergia Brasília')
+        self.assertEqual(identify_utility('Brasília', 'DF')['confidence'], 'alta')
+        self.assertEqual(identify_utility('Brasília', 'Federal District')['utility'], 'Neoenergia Brasília')
+        self.assertIsNone(identify_utility('Campinas', 'São Paulo'))
+        self.assertIsNone(identify_utility('Salvador', 'Bahia'))
     def test_only_current_conventional_residential_base(self):
         row = {'SigAgente':'Neoenergia Brasília','DscBaseTarifaria':'Base Econômica',
                'DscSubGrupo':'B1','DscModalidadeTarifaria':'Convencional',
