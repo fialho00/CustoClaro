@@ -5,21 +5,23 @@ Foto da etiqueta elétrica → potência revisada → estimativa de custo. Proje
 ## Usar no Windows
 
 1. Instale Python 3.10+ e baixe/extraia este repositório.
-2. Abra `Iniciar_CustoClaro.bat`. Na primeira execução, aguarde a instalação.
+2. Abra `Executavel.bat`. Na primeira execução, aguarde a instalação.
 3. Escolha **1** para abrir ou **3** para escolher uma foto antes de abrir.
 4. Se quiser leitura por IA, informe uma Gemini API Key na opção **2** antes de abrir, ou no campo **Chave da IA** dentro do app. Pode colar somente a chave ou `GEMINI_API_KEY=...`; não há exigência de prefixo `AIza`.
-5. No navegador, envie/tire a foto da etiqueta. Clique **Ler etiqueta com IA**, confira os W e confirme. Sem chave ou sem foto, digite os W manualmente.
-6. Informe **minutos de uso por dia**. O custo aparece logo abaixo. Tarifa e dias podem ser ajustados em **Ajustes**. A tarifa inicial R$ 0,90/kWh é apenas um exemplo.
+5. Escolha **Tirar foto agora** ou **Escolher foto**. Fotografe a placa de dados elétricos, geralmente na lateral, parte de trás ou embaixo do aparelho. O valor seguido de **W** ou **kW** deve estar legível; uma foto apenas do código de barras não informa a potência. Clique **Ler etiqueta com IA**, confira os W e confirme. Sem chave ou foto, digite os W manualmente.
+6. Informe **minutos de uso por dia**. O custo aparece logo abaixo. Tarifa e dias podem ser ajustados em **Ajustar tarifa e dias**. A tarifa inicial R$ 0,90/kWh é apenas um exemplo.
+
+Na tela inicial, escolha **Um aparelho** para uma simulação rápida ou **Energia da casa** para adicionar vários aparelhos, um por vez. Na casa, cada item pode ter quantidade, potência e tempo próprios. O total e o CSV são recalculados com a tarifa atual. A lista da casa fica só na sessão do navegador e desaparece ao encerrá-la.
 
 Em **Ajustar tarifa e dias**, você pode permitir a localização aproximada do navegador, procurar a distribuidora que consta em sua conta e aplicar a tarifa residencial convencional B1 vigente da [ANEEL](https://dadosabertos.aneel.gov.br/dataset/tarifas-distribuidoras-energia-eletrica). A região não determina a distribuidora com segurança; confirme a opção escolhida. O app também consulta a bandeira vigente quando disponível. Se a consulta falhar, informe a tarifa diretamente da sua conta.
 
-O chat inferior responde perguntas sobre **esta simulação**. Cenários como “e se usar 5 minutos?” são calculados localmente. Com chave de API, perguntas abertas sobre a etiqueta ou a estimativa usam Gemma 4 com os números já calculados; não é um chat geral.
+O chat inferior responde perguntas sobre **esta simulação**. Cenários como “e se usar 5 minutos?” e a identificação do aparelho que mais consome na casa são calculados localmente. Com chave de API, perguntas abertas sobre a etiqueta ou a estimativa usam Gemma 4 com os números já calculados; não é um chat geral.
 
 ## Privacidade
 
 O iniciador não cria `.env` e não salva chaves. A chave permanece na memória do processo/sessão durante o uso; fotos, mensagens e resultados não são gravados pelo código do app. Ao clicar em **Ler etiqueta com IA**, a imagem reduzida e sem EXIF é enviada à API do Google. Considere os termos e a política de dados do provedor antes de enviar imagens sensíveis. Uma foto previamente escolhida já existe no local original do usuário. Arquivos `.env` criados por versões antigas não são lidos pelo app atual: remova-os você mesmo se não precisar deles. O CSV só inclui os dados do cálculo, sem a chave ou a foto.
 
-No chat com IA, cada pergunta aberta envia a pergunta e os números da simulação à API do Google. O histórico completo do chat não é enviado pelo código do app. Sem chave, o chat oferece respostas locais limitadas.
+No chat com IA, cada pergunta aberta envia a pergunta e os números da simulação à API do Google. Na casa, o contexto inclui o total e até dez aparelhos de maior consumo. O histórico completo do chat não é enviado pelo código do app. Sem chave, o chat oferece respostas locais limitadas.
 
 A localização só é solicitada ao clicar no controle do navegador; coordenadas arredondadas a duas casas decimais são enviadas ao [OpenStreetMap/Nominatim](https://operations.osmfoundation.org/policies/nominatim/) para obter cidade e estado. O código guarda somente esse nome de região na sessão, sem gravar coordenadas. O serviço público de geocodificação tem limites e pode ficar indisponível.
 
