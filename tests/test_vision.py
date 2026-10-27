@@ -1,7 +1,6 @@
 import os
 import unittest
 from decimal import Decimal
-from types import SimpleNamespace
 from unittest.mock import patch
 
 from vision import answer_about_estimate, evidence_power_values, parse_label_response, read_label
@@ -96,21 +95,11 @@ class GemmaOutputTests(unittest.TestCase):
         self.assertEqual(arguments.kwargs["model"], "gemma-4-26b-a4b-it")
         self.assertEqual(len(arguments.kwargs["contents"]), 2)
         self.assertEqual(arguments.kwargs["contents"][1].inline_data.data, b"test-image")
-
-    def test_transient_server_error_is_retried(self):
-        temporary = RuntimeError('temporarily unavailable')
-        temporary.code = 503
-        response = SimpleNamespace(text=(
-            '{"appliance":"Chuveiro","power_watts":5500,'
-            '"evidence":"5500 W","confidence":"alta"}'
-        ))
-        with patch('google.genai.Client') as client, patch('vision.time.sleep') as sleep:
-            generate = client.return_value.__enter__.return_value.models.generate_content
-            generate.side_effect = [temporary, response]
-            result = read_label(b'test-image', 'image/jpeg', api_key='key-for-test-only')
-        self.assertEqual(result.power_watts, Decimal(5500))
-        self.assertEqual(generate.call_count, 2)
-        sleep.assert_called_once_with(0.5)
+        client_args = client.call_args.kwargs
+        self.assertEqual(client_args['http_options'].timeout, 12000)
+        retry = client_args['http_options'].retry_options
+        self.assertEqual(retry.attempts, 3)
+        self.assertEqual(retry.http_status_codes, [500, 502, 503, 504])
 
     def test_contextual_chat_sends_only_current_question_and_numbers(self):
         with patch('google.genai.Client') as client:
