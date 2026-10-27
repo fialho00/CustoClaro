@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import csv
+from datetime import date
 import hashlib
 import io
 import os
@@ -14,6 +15,7 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 
 from core import brl, calculate_energy, pt_number, safe_spreadsheet_text
 from vision import MAX_UPLOAD_BYTES, LabelReading, read_label, configured_api_key, answer_about_estimate
+from tariffs import SOURCE as TARIFF_SOURCE, current_flag, lookup_residential_tariff, reverse_location, search_distributors
 
 st.set_page_config(page_title='CustoClaro', page_icon='⚡', layout='centered', initial_sidebar_state='collapsed')
 
@@ -47,7 +49,7 @@ def csv_report(name: str, estimate: object, source: str = 'manual') -> bytes:
                      'Custo (R$/mês)', 'Custo (R$/ano)'])
     writer.writerow([safe_spreadsheet_text(name), safe_spreadsheet_text(source),
                      pt_number(estimate.watts), pt_number(estimate.hours_per_day * 60, 0),
-                     estimate.days_per_month, pt_number(estimate.tariff_per_kwh),
+                     estimate.days_per_month, pt_number(estimate.tariff_per_kwh, 5),
                      pt_number(estimate.monthly_kwh), pt_number(estimate.monthly_brl),
                      pt_number(estimate.annual_brl)])
     return ('\ufeff' + output.getvalue()).encode('utf-8')
@@ -59,7 +61,7 @@ def contextual_reply(question: str, estimate: object | None, name: str) -> str:
         return 'Primeiro envie uma foto com a potência em W ou informe os watts manualmente.'
     q = question.casefold()
     if any(word in q for word in ('tarifa', 'preço do kwh', 'preco do kwh')):
-        return f'Estou usando R$ {pt_number(estimate.tariff_per_kwh)}/kWh como exemplo. Abra “Ajustes” para colocar a tarifa da sua conta.'
+        return f'Estou usando R$ {pt_number(estimate.tariff_per_kwh, 5)}/kWh. Abra “Ajustar tarifa e dias” para usar a tarifa da sua conta.'
     match = re.search(r'(\d+(?:[.,]\d+)?)\s*(minutos?|min|horas?|h)\b', q)
     if match:
         amount = Decimal(match.group(1).replace(',', '.'))
@@ -90,7 +92,8 @@ def contextual_reply(question: str, estimate: object | None, name: str) -> str:
 for key, default in {'dark': False, 'watts': 0.0, 'minutes': 10, 'days': 30,
                      'tariff': 0.90, 'name': 'Aparelho', 'reading': None,
                      'fingerprint': None, 'confirmed': False, 'source': 'manual',
-                     'chat': []}.items():
+                     'chat': [], 'location_label': None, 'distributors': [],
+                     'tariff_source': 'exemplo'}.items():
     st.session_state.setdefault(key, default)
 
 
@@ -98,6 +101,10 @@ def power_changed() -> None:
     if st.session_state.reading is not None:
         st.session_state.confirmed = False
         st.session_state.source = 'foto + ajuste manual'
+
+
+def tariff_changed() -> None:
+    st.session_state.tariff_source = 'informada por você'
 
 # Deliberately do not persist keys, photos, conversation or calculations to disk.
 background = '#101b20' if st.session_state.dark else '#f7faf9'
@@ -217,10 +224,54 @@ else:
 if st.session_state.watts > 0:
     st.number_input('Minutos de uso por dia', min_value=0, max_value=1440, step=5, key='minutes')
     with st.expander('Ajustar tarifa e dias', expanded=False):
+        st.write('**Tarifa da sua região**')
+        st.caption('Localização apenas com sua permissão. Coordenadas aproximadas são consultadas no OpenStreetMap; confirme a distribuidora da sua conta.')
+        from streamlit_geolocation import streamlit_geolocation
+        location = streamlit_geolocation()
+        if isinstance(location, dict) and location.get('latitude') is not None and not st.session_state.location_label:
+            try:
+                city, state = reverse_location(float(location['latitude']), float(location['longitude']))
+                st.session_state.location_label = f'{city}, {state}'.strip(', ')
+            except (ValueError, OSError):
+                st.warning('Não consegui identificar a região. Você pode procurar sua distribuidora abaixo.')
+        if st.session_state.location_label:
+            st.caption(f'Região aproximada: {st.session_state.location_label}. A localização não identifica sua distribuidora.')
+        st.caption('Geocodificação: © OpenStreetMap contributors.')
+        utility_query = st.text_input('Distribuidora da sua conta', placeholder='Ex.: Neoenergia Brasília')
+        if st.button('Procurar tarifa oficial', disabled=len(utility_query.strip()) < 3):
+            try:
+                st.session_state.distributors = search_distributors(utility_query)
+            except (OSError, ValueError):
+                st.warning('Consulta indisponível. Informe a tarifa da sua conta abaixo.')
+        if st.session_state.distributors:
+            utility = st.selectbox('Confirme a distribuidora', st.session_state.distributors)
+            if st.button('Usar tarifa base da ANEEL'):
+                try:
+                    official = lookup_residential_tariff(utility, date.today())
+                    if official:
+                        try:
+                            flag = current_flag(date.today())
+                        except (OSError, ValueError, KeyError):
+                            flag = None
+                        extra = flag[1] if flag else Decimal(0)
+                        st.session_state.tariff = float(official.per_kwh + extra)
+                        flag_label = f' · bandeira {flag[0]}' if flag else ' · bandeira não confirmada'
+                        st.session_state.tariff_source = f'ANEEL · {utility}{flag_label} · vigente até {official.ends:%d/%m/%Y}'
+                        st.success(f'Tarifa base: R$ {pt_number(official.per_kwh, 3)}/kWh'
+                                   + (f' + bandeira {flag[0]}: R$ {pt_number(extra, 3)}/kWh.' if flag else '. Bandeira não confirmada.')
+                                   + ' Tributos e iluminação pública não incluídos.')
+                    else:
+                        st.warning('Não encontrei uma tarifa residencial única e vigente. Use sua conta como referência.')
+                except (OSError, ValueError):
+                    st.warning('ANEEL indisponível agora. Digite a tarifa da sua conta.')
         st.number_input('Dias de uso no mês', min_value=1, max_value=31, step=1, key='days')
+        official_rate = st.session_state.tariff_source.startswith('ANEEL')
         st.number_input('Tarifa (R$/kWh)', min_value=0.0, max_value=1000.0,
-                        step=0.05, format='%.2f', key='tariff')
-        st.caption('R$ 0,90/kWh é só um exemplo. Consulte sua conta para maior precisão.')
+                        step=0.00001 if official_rate else 0.05,
+                        format='%.5f' if official_rate else '%.2f',
+                        key='tariff', on_change=tariff_changed)
+        st.caption(f'Fonte: {st.session_state.tariff_source}. Tarifa base não inclui tributos, bandeira ou iluminação pública. '
+                   f'[Dados oficiais]({TARIFF_SOURCE}).')
 
 if st.session_state.watts > 0 and st.session_state.reading and not st.session_state.confirmed:
     if st.button('Confirmar potência', type='primary', use_container_width=True):
@@ -233,13 +284,13 @@ if st.session_state.watts > 0 and (not st.session_state.reading or st.session_st
                                 hours_per_day=Decimal(st.session_state.minutes) / 60,
                                 days_per_month=st.session_state.days,
                                 tariff_per_kwh=st.session_state.tariff)
-    st.metric('Custo por mês', brl(estimate.monthly_brl))
+    st.metric('Custo estimado/mês', brl(estimate.monthly_brl))
     st.write(f'**{pt_number(estimate.monthly_kwh)} kWh/mês** · **{brl(estimate.annual_brl)} em 12 meses**')
     st.write(f'Cada uso de {st.session_state.minutes} minutos custa cerca de '
              f'**{brl(estimate.monthly_brl / st.session_state.days)}**.')
     with st.expander('Como chegamos a esse valor?'):
         st.write(f'{pt_number(estimate.watts, 0)} W × {st.session_state.minutes} min/dia × '
-                 f'{st.session_state.days} dias × R$ {pt_number(estimate.tariff_per_kwh)}/kWh.')
+                 f'{st.session_state.days} dias × R$ {pt_number(estimate.tariff_per_kwh, 5)}/kWh.')
         st.caption('Estimativa, não medição. Aparelhos com potência variável podem consumir diferente.')
     st.download_button('Baixar resultado (CSV)',
                        data=csv_report(st.session_state.name, estimate, st.session_state.source),
@@ -262,7 +313,7 @@ if estimate is not None:
         else:
             context = (f'Aparelho: {st.session_state.name}; potência: {pt_number(estimate.watts)} W; '
                        f'uso: {st.session_state.minutes} minutos/dia; dias: {st.session_state.days}; '
-                       f'tarifa: R$ {pt_number(estimate.tariff_per_kwh)}/kWh; '
+                   f'tarifa: R$ {pt_number(estimate.tariff_per_kwh, 5)}/kWh; '
                        f'energia mensal: {pt_number(estimate.monthly_kwh)} kWh; '
                        f'custo mensal: {brl(estimate.monthly_brl)}; '
                        f'12 meses iguais: {brl(estimate.annual_brl)}. '
