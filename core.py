@@ -1,4 +1,4 @@
-"""Deterministic electrical-energy estimates for CustoClaro."""
+"""Deterministic electrical-energy estimates for WattCola."""
 
 from __future__ import annotations
 

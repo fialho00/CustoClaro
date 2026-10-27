@@ -1,1 +1,1 @@
-"""HTTP interface for the CustoClaro web application."""
+"""HTTP interface for the WattCola web application."""

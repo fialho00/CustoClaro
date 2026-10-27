@@ -1,13 +1,13 @@
-# Diretrizes do projeto CustoClaro
+# Diretrizes do projeto WattCola
 
 ## Objetivo
 
-CustoClaro é um assistente de consumo elétrico para pessoas comuns. Sua interface principal é a Nom Nom, um coala-eletricista que ajuda o usuário a entender o custo mensal de aparelhos, estimar o consumo de sua casa, comparar eletrodomésticos e tomar decisões de economia de energia. A IA orienta; os cálculos e fatos verificáveis têm fontes independentes.
+WattCola é um assistente de consumo elétrico para pessoas comuns. Sua interface principal é a Nom Nom, um coala-eletricista que ajuda o usuário a entender o custo mensal de aparelhos, estimar o consumo de sua casa, comparar eletrodomésticos e tomar decisões de economia de energia. A IA orienta; os cálculos e fatos verificáveis têm fontes independentes.
 
 ## Estado e arquitetura
 
 - Interface oficial: React + TypeScript + Vite (`src/`); entrada `index.html`.
-- API oficial: FastAPI (`api/index.py`) com `core.py` para cálculo, `vision.py` para etiquetas/Gemini, `tariffs.py` para consulta de tarifas e `product_catalog.py` para pesquisa de produtos.
+- API oficial: FastAPI (`api/index.py`) com `core.py` para cálculo, `vision.py` para etiquetas/Gemini, `tariffs.py` para consulta de tarifas e `products.py` e `product_catalog.py` para pesquisa de produtos.
 - `app.py` é um protótipo antigo de Streamlit e não deve substituir a interface oficial.
 - Logo oficial: `public/nomnom-logo.png`. Nome da IA: **Nom Nom**. Não voltar a nomes antigos; manter verde-petróleo, menta e amarelo elétrico.
 - `dist/` contém a interface compilada usada por `Executavel.bat`: reconstruir e incluir `dist` quando o frontend mudar, ou o executável mostrará versão desatualizada.

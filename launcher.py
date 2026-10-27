@@ -1,4 +1,4 @@
-"""Open the CustoClaro web experience locally, without exposing API keys in the UI."""
+"""Open the WattCola web experience locally, without exposing API keys in the UI."""
 
 from pathlib import Path
 import os
@@ -43,7 +43,7 @@ def available_port(start: int = 8501, attempts: int = 20) -> int:
                 return port
         except OSError:
             continue
-    raise RuntimeError('Nenhuma porta local livre para abrir o CustoClaro.')
+    raise RuntimeError('Nenhuma porta local livre para abrir o WattCola.')
 
 
 def main() -> None:
@@ -56,7 +56,7 @@ def main() -> None:
             os.environ['GEMINI_API_KEY'] = key
     port = available_port()
     local_url = f'http://127.0.0.1:{port}'
-    print(f'CustoClaro - abrindo {local_url}')
+    print(f'WattCola - abrindo {local_url}')
     print('A IA usa a chave do servidor. Nenhuma chave aparece no navegador.')
     print('Para encerrar, pressione Ctrl+C nesta janela.')
     threading.Timer(1.6, lambda: webbrowser.open(local_url)).start()

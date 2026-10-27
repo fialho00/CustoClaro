@@ -1,7 +1,7 @@
 @echo off
 setlocal
 cd /d "%~dp0"
-echo CustoClaro - Preparando aplicativo...
+echo WattCola - Preparando aplicativo...
 if exist ".venv\Scripts\python.exe" goto dependencies
 py -3 -c "import sys; sys.exit(sys.version_info < (3,10))" >nul 2>&1
 if errorlevel 1 goto pythonfallback

@@ -153,7 +153,7 @@ function Brand({ small = false }: { small?: boolean }) {
       />
       <div>
         <div className="brand-name">
-          Custo<span>Claro</span>
+          Watt<span>Cola</span>
         </div>
         {!small && <div className="brand-tagline">Entenda sua energia.</div>}
       </div>
@@ -854,7 +854,7 @@ export default function App() {
                 <section className="hero card">
                   <div className="hero-copy">
                     <span className="eyebrow">
-                      CUSTOCLARO · INTELIGÊNCIA EM ENERGIA
+                      WATTCOLA · INTELIGÊNCIA EM ENERGIA
                     </span>
                     <h2>
                       Sua energia, <em>explicada pela IA.</em>

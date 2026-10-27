@@ -43,7 +43,7 @@ class OfficialTariff:
 
 def _get(params: dict, resource: str = RESOURCE) -> list[dict]:
     url = API + '?' + urlencode({'resource_id': resource, **params})
-    with urlopen(Request(url, headers={'User-Agent': 'CustoClaro/1.0'}), timeout=15) as response:
+    with urlopen(Request(url, headers={'User-Agent': 'WattCola/1.0'}), timeout=15) as response:
         data = json.load(response)
     if not data.get('success'):
         raise ValueError('A consulta à ANEEL falhou.')
@@ -120,7 +120,7 @@ def reverse_location(latitude: float, longitude: float) -> tuple[str, str]:
         'lat': round(latitude, 2), 'lon': round(longitude, 2),
         'format': 'jsonv2', 'zoom': 10, 'addressdetails': 1,
     })
-    with urlopen(Request(url, headers={'User-Agent': 'CustoClaro/1.0 (https://github.com/fialho00/CustoClaro)'}), timeout=10) as response:
+    with urlopen(Request(url, headers={'User-Agent': 'WattCola/1.0 (https://github.com/fialho00/WattCola)'}), timeout=10) as response:
         address = json.load(response).get('address', {})
     return (address.get('city') or address.get('town') or address.get('municipality') or '',
             address.get('state') or '')

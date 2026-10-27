@@ -22,7 +22,7 @@ from vision import configured_api_key, read_label
 from products import Product, monthly_product_kwh, search_products
 
 
-app = FastAPI(title="CustoClaro", docs_url=None, redoc_url=None)
+app = FastAPI(title="WattCola", docs_url=None, redoc_url=None)
 PREFERRED_MODEL = os.getenv("CUSTOCLARO_MODEL", "gemini-3.1-flash-lite")
 MAX_IMAGE_BYTES = 4 * 1024 * 1024
 
@@ -458,7 +458,7 @@ def chat(payload: ChatInput):
             from google import genai
             from google.genai import types
             guidance = (
-                'Você é Nom Nom, a assistente central do CustoClaro. Converse em português brasileiro '
+                'Você é Nom Nom, a assistente central do WattCola. Converse em português brasileiro '
                 'com clareza, em até quatro frases. Ajude a organizar eletrodomésticos da casa, '
                 'entender estimativas, identificar maiores gastos, sugerir economia, pesquisar modelos, '
                 'comparar produtos e orientar a leitura de etiquetas. Você dispõe de ferramentas de '
