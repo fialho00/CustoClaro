@@ -5,14 +5,22 @@ from __future__ import annotations
 import json
 import os
 import re
+from pathlib import Path
 from dataclasses import dataclass
 from decimal import Decimal
 
 from core import as_decimal
+from dotenv import dotenv_values
 
 DEFAULT_MODEL = "gemma-4-26b-a4b-it"
 SUPPORTED_MIME_TYPES = {"image/jpeg", "image/png", "image/webp"}
 MAX_UPLOAD_BYTES = 8 * 1024 * 1024
+
+
+def configured_api_key() -> str | None:
+    """Prefer the key set by the local launcher over inherited shell variables."""
+    local = dotenv_values(Path(__file__).resolve().parent / '.env').get('GEMINI_API_KEY')
+    return local or os.getenv('GEMINI_API_KEY') or os.getenv('GOOGLE_API_KEY')
 POWER_PATTERN = re.compile(
     r"(?<![\w.,+\-])(?P<amount>\d+(?:[.,]\d+)*)\s*(?P<unit>k?W)(?![\w/])",
     re.IGNORECASE,
@@ -145,7 +153,7 @@ def read_label(
     if not image_bytes or len(image_bytes) > MAX_UPLOAD_BYTES:
         raise ValueError("A imagem deve ter no máximo 8 MB.")
 
-    key = api_key or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+    key = api_key or configured_api_key()
     if not key:
         raise ValueError("Configure GEMINI_API_KEY para ativar a leitura por IA.")
 
@@ -162,3 +170,4 @@ def read_label(
             config=types.GenerateContentConfig(temperature=0),
         )
     return parse_label_response(response.text or "", model=model)
+
