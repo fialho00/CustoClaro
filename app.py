@@ -1,4 +1,4 @@
-"""CustoClaro: photo-first, private-session energy estimate."""
+"""WattCola: photo-first, private-session energy estimate."""
 from __future__ import annotations
 
 import csv
@@ -17,7 +17,7 @@ from core import brl, calculate_energy, pt_number, safe_spreadsheet_text
 from vision import MAX_UPLOAD_BYTES, LabelReading, read_label, configured_api_key, answer_about_estimate
 from tariffs import SOURCE as TARIFF_SOURCE, current_flag, lookup_residential_tariff, reverse_location, search_distributors
 
-st.set_page_config(page_title='CustoClaro', page_icon='⚡', layout='centered', initial_sidebar_state='collapsed')
+st.set_page_config(page_title='WattCola', page_icon='⚡', layout='centered', initial_sidebar_state='collapsed')
 
 
 def prepare_image(uploaded: object) -> tuple[bytes, str]:
@@ -209,7 +209,7 @@ if st.button('☾ Escuro' if not st.session_state.dark else '☀ Claro',
              help='Alternar aparência'):
     st.session_state.dark = not st.session_state.dark
     st.rerun()
-st.markdown('''<div class="hero"><span class="eyebrow">CustoClaro · leitura com IA</span>
+st.markdown('''<div class="hero"><span class="eyebrow">WattCola · leitura com IA</span>
 <h1>Da etiqueta ao custo, em poucos toques.</h1>
 <p>Fotografe a potência do aparelho, confira a leitura da IA e descubra quanto ele pode gastar.</p>
 <span class="steps">1 · Foto &nbsp; → &nbsp; 2 · Conferir &nbsp; → &nbsp; 3 · Calcular</span></div>''', unsafe_allow_html=True)
@@ -224,13 +224,13 @@ st.markdown('<div class="hint">Aponte para a <strong>placa de dados elétricos</
             'ou <strong>kW</strong>. Uma foto só do código de barras não informa a potência.</div>',
             unsafe_allow_html=True)
 source = st.radio('Como enviar a foto?', ['📸 Tirar foto agora', '🖼️ Escolher foto'],
-                  horizontal=True, index=1 if os.getenv('CUSTOCLARO_INITIAL_IMAGE') else 0)
+                  horizontal=True, index=1 if (os.getenv('WATTCOLA_INITIAL_IMAGE') or os.getenv('CUSTOCLARO_INITIAL_IMAGE')) else 0)
 if source == '📸 Tirar foto agora':
     uploaded = st.camera_input('Abrir câmera', key=f'camera_{st.session_state.photo_version}')
 else:
     uploaded = st.file_uploader('Escolher imagem da etiqueta', type=['jpg', 'jpeg', 'png', 'webp'],
                                 key=f'photo_{st.session_state.photo_version}')
-initial_path = os.getenv('CUSTOCLARO_INITIAL_IMAGE')
+initial_path = os.getenv('WATTCOLA_INITIAL_IMAGE') or os.getenv('CUSTOCLARO_INITIAL_IMAGE')
 if uploaded is None and source == '🖼️ Escolher foto' and initial_path and not st.session_state.initial_consumed:
     if st.checkbox('Usar foto escolhida no iniciador', value=True):
         try:
@@ -401,7 +401,7 @@ if st.session_state.watts > 0 and (not st.session_state.reading or st.session_st
     else:
         st.download_button('Baixar resultado (CSV)',
                            data=csv_report(st.session_state.name, estimate, st.session_state.source),
-                           file_name='custoclaro_resultado.csv', mime='text/csv', use_container_width=True)
+                           file_name='wattcola_resultado.csv', mime='text/csv', use_container_width=True)
 elif st.session_state.reading and not st.session_state.confirmed:
     st.info('Confira e confirme a potência para ver o custo.')
 
@@ -432,7 +432,7 @@ if mode == '🏠 Energia da casa':
                 st.rerun()
         st.download_button('Baixar cálculo da casa (CSV)',
                            data=household_report(st.session_state.house, st.session_state.tariff),
-                           file_name='custoclaro_casa.csv', mime='text/csv', use_container_width=True)
+                           file_name='wattcola_casa.csv', mime='text/csv', use_container_width=True)
         st.caption('Total aproximado dos aparelhos adicionados; a conta real pode incluir outros consumos, impostos e taxas.')
         st.subheader('✨ Pergunte à IA sobre sua casa')
         st.caption('Ex.: “qual consome mais?” ou “como reduzir o consumo?”')

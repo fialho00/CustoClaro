@@ -4,6 +4,8 @@
 
 Projeto do Hack Day desenvolvido por **Alexandre Bezerra, Maria Eduarda e Gabriel Fialho**. O WattCola ajuda a transformar informações de eletrodomésticos em estimativas compreensíveis de consumo e gasto — com uma IA dedicada ao assunto e cálculos reproduzíveis.
 
+**Acesse o aplicativo:** [wattcola.vercel.app](https://wattcola.vercel.app).
+
 ## O que o aplicativo faz
 
 | Recurso | Como funciona | Observação |
@@ -33,7 +35,7 @@ A integração com Gemini **já está implementada**. Você precisa fornecer a c
 ### Na Vercel (para todos acessarem)
 
 1. Gere ou confira sua chave em [Google AI Studio](https://aistudio.google.com/apikey). Consulte o plano, as cotas e eventuais cobranças.
-2. Abra o [painel da Vercel](https://vercel.com/dashboard), selecione **o projeto ligado ao repositório `fialho00/WattCola`** e entre em **Settings → Environment Variables**.
+2. Abra o [painel da Vercel](https://vercel.com/dashboard), selecione o projeto **`wattcola`** (repositório `fialho00/WattCola`) e entre em **Settings → Environment Variables**.
 3. Adicione exatamente:
    - **Key:** `GEMINI_API_KEY`
    - **Value:** sua chave privada do Gemini (sem aspas extras ou espaços)

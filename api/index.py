@@ -23,7 +23,7 @@ from products import Product, monthly_product_kwh, search_products
 
 
 app = FastAPI(title="WattCola", docs_url=None, redoc_url=None)
-PREFERRED_MODEL = os.getenv("CUSTOCLARO_MODEL", "gemini-3.1-flash-lite")
+PREFERRED_MODEL = os.getenv("WATTCOLA_MODEL", os.getenv("CUSTOCLARO_MODEL", "gemini-3.1-flash-lite"))
 MAX_IMAGE_BYTES = 4 * 1024 * 1024
 
 

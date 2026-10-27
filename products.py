@@ -15,7 +15,7 @@ from urllib.parse import urlparse
 from core import calculate_energy
 
 PBE_URL = 'https://pbe.inmetro.gov.br/'
-SEARCH_MODEL = os.getenv('CUSTOCLARO_SEARCH_MODEL', 'gemini-3.5-flash-lite')
+SEARCH_MODEL = os.getenv('WATTCOLA_SEARCH_MODEL', os.getenv('CUSTOCLARO_SEARCH_MODEL', 'gemini-3.5-flash-lite'))
 
 
 @dataclass(frozen=True)
