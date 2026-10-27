@@ -282,7 +282,7 @@ export default function App() {
     return () => controller.abort();
   }, [house]);
   useEffect(() => {
-    if (screen === "nomnom" && chatScrollRef.current) {
+    if (chatScrollRef.current) {
       const panel = chatScrollRef.current;
       panel.scrollTop = panel.scrollHeight;
     }
@@ -694,7 +694,7 @@ export default function App() {
         {error && !settingsOpen && (
           <ErrorNote message={error} close={() => setError("")} />
         )}
-        <div className="work-layout single-layout">
+        <div className={"work-layout " + (screen === "nomnom" ? "single-layout" : "with-assistant")}>
           <main className="main-column">
             {screen === "home" && (
               <>
@@ -1266,7 +1266,7 @@ export default function App() {
             )}
           </main>
 
-          {screen === "nomnom" && <section className="assistant card assistant-page" aria-label="Chat com a Nom Nom">
+          <section className={"assistant card " + (screen === "nomnom" ? "assistant-page" : "assistant-sidebar")} aria-label="Chat com a Nom Nom">
             <div className="assistant-heading">
               <img
                 className="assistant-avatar"
@@ -1363,7 +1363,7 @@ export default function App() {
                 </button>
               </form>
             </div>
-          </section>}
+          </section>
         </div>
       </div>
 

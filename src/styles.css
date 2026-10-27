@@ -1551,6 +1551,9 @@ p {
   }
 }
 @media (max-width: 760px) {
+  .assistant.assistant-sidebar {
+    display: none;
+  }
   .assistant.assistant-page {
     height: calc(100dvh - 172px);
     min-height: 420px;
