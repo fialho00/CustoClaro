@@ -7,7 +7,7 @@ O novo aplicativo tem interface **React + Vite**, com design responsivo escuro, 
 ## Usar no Windows
 
 1. Instale **Python 3.10 ou superior**. Node.js só é necessário para modificar e recompilar o frontend.
-2. Abra `Executavel.bat`. Na primeira vez, aguarde instalar as dependências Python. O script usa a interface compilada incluída no repositório e abre o navegador em `http://127.0.0.1:8501`.
+2. Abra `Executavel.bat`. Na primeira vez, aguarde instalar as dependências Python. O script usa a interface compilada incluída no repositório e abre o navegador em `http://127.0.0.1:8501` ou na próxima porta livre, se ela já estiver ocupada.
 3. Se você já possui `GEMINI_API_KEY` no ambiente, ela é usada automaticamente. O iniciador também reconhece a chave privada em `Documentos/.env` (`%USERPROFILE%\Documents\.env`) **sem copiar esse arquivo para o projeto**.
 4. Toque em **Tirar foto** ou **Enviar imagem**, confira a potência extraída da placa de dados (W ou kW), confirme e ajuste o tempo de uso. Também é possível informar os watts manualmente.
 

@@ -3,11 +3,11 @@
 from pathlib import Path
 import os
 import re
+import socket
 import threading
 import webbrowser
 
 ROOT = Path(__file__).resolve().parent
-LOCAL_URL = 'http://127.0.0.1:8501'
 
 
 def normalize_key(value: str) -> str:
@@ -34,6 +34,18 @@ def load_key_from_documents() -> str | None:
     return None
 
 
+def available_port(start: int = 8501, attempts: int = 20) -> int:
+    """Keep existing local servers untouched when the default port is occupied."""
+    for port in range(start, start + attempts):
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+                probe.bind(('127.0.0.1', port))
+                return port
+        except OSError:
+            continue
+    raise RuntimeError('Nenhuma porta local livre para abrir o CustoClaro.')
+
+
 def main() -> None:
     os.chdir(ROOT)
     if not (ROOT / 'dist' / 'index.html').is_file():
@@ -42,12 +54,14 @@ def main() -> None:
         key = load_key_from_documents()
         if key:
             os.environ['GEMINI_API_KEY'] = key
-    print(f'CustoClaro - abrindo {LOCAL_URL}')
+    port = available_port()
+    local_url = f'http://127.0.0.1:{port}'
+    print(f'CustoClaro - abrindo {local_url}')
     print('A IA usa a chave do servidor. Nenhuma chave aparece no navegador.')
     print('Para encerrar, pressione Ctrl+C nesta janela.')
-    threading.Timer(1.6, lambda: webbrowser.open(LOCAL_URL)).start()
+    threading.Timer(1.6, lambda: webbrowser.open(local_url)).start()
     import uvicorn
-    uvicorn.run('api.index:app', host='127.0.0.1', port=8501, log_level='warning')
+    uvicorn.run('api.index:app', host='127.0.0.1', port=port, log_level='warning')
 
 
 if __name__ == '__main__':
