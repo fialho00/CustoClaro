@@ -14,7 +14,7 @@ class StreamlitAppTests(unittest.TestCase):
     def test_initial_screen_loads_without_exception(self):
         app = AppTest.from_file(APP_PATH).run(timeout=30)
         self.assertFalse(app.exception)
-        self.assertEqual(app.title[0].value, "CustoClaro")
+        self.assertTrue(any("<h1>CustoClaro</h1>" in item.value for item in app.markdown))
 
     def test_example_produces_expected_metrics(self):
         app = AppTest.from_file(APP_PATH).run(timeout=30)
@@ -46,7 +46,7 @@ class StreamlitAppTests(unittest.TestCase):
         self.assertFalse(app.exception)
         self.assertTrue(any(metric.label == "Consumo mensal" for metric in app.metric))
 
-    def test_manual_correction_confirms_the_extracted_value(self):
+    def test_manual_correction_still_requires_confirmation(self):
         app = AppTest.from_file(APP_PATH).run(timeout=30)
         app.session_state["label_reading"] = LabelReading(
             appliance="Ventilador", power_watts=Decimal(60), evidence="60 W",
@@ -58,6 +58,11 @@ class StreamlitAppTests(unittest.TestCase):
         power_input = next(field for field in app.number_input if field.label == "Potência nominal (W)")
         power_input.set_value(75.0).run(timeout=30)
         self.assertFalse(app.exception)
+        self.assertFalse(app.session_state["power_confirmed"])
+        self.assertIn("manualmente", app.session_state["source_kind"])
+        self.assertFalse(any(metric.label == "Consumo mensal" for metric in app.metric))
+        confirm = next(button for button in app.button if button.label == "✓ Confirmar potência e calcular")
+        confirm.click().run(timeout=30)
         self.assertTrue(app.session_state["power_confirmed"])
         self.assertIn("manualmente", app.session_state["source_kind"])
         self.assertTrue(any(metric.label == "Consumo mensal" for metric in app.metric))
@@ -74,3 +79,4 @@ class StreamlitAppTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
