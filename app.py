@@ -105,28 +105,28 @@ foreground = '#ecf6f4' if st.session_state.dark else '#172d2a'
 card = '#1d3033' if st.session_state.dark else '#ffffff'
 st.markdown(f'''<style>
 .stApp {{background:{background};color:{foreground}}}
-.block-container {{max-width:760px;padding-top:1.2rem;padding-bottom:3rem}}
+.block-container {{max-width:700px;padding-top:.75rem;padding-bottom:3rem}}
 header[data-testid="stHeader"], #MainMenu, footer {{visibility:hidden}}
-.hero {{background:linear-gradient(135deg,#075e52,#15967c);color:white;padding:1.5rem;border-radius:20px;margin-bottom:1.1rem}}
+.hero {{background:linear-gradient(135deg,#075e52,#15967c);color:white;padding:1.25rem 1.5rem;border-radius:18px;margin-bottom:.65rem}}
 .hero h1 {{color:white;margin:0;font-size:2.1rem}}
 .hero p {{margin:.35rem 0 0;color:#e3fff5}}
 [data-testid="stMetric"] {{background:{card};border:1px solid #5f8e8555;border-radius:14px;padding:1rem}}
-@media(max-width:600px) {{.block-container {{padding:1rem .8rem 4rem}} .hero {{padding:1.15rem}} .hero h1 {{font-size:1.7rem}}}}
+div.stButton > button, div.stDownloadButton > button {{min-height:2.85rem;border-radius:12px}}
+@media(max-width:600px) {{.block-container {{padding:.5rem .85rem 4rem}} .hero {{padding:1rem 1.15rem}} .hero h1 {{font-size:1.55rem}} h3 {{font-size:1.25rem !important}}}}
 {'''[data-testid="stAppViewContainer"] input, [data-testid="stAppViewContainer"] textarea {
 background:#22383b !important;color:#f2faf8 !important;}
 [data-testid="stAppViewContainer"] label, [data-testid="stAppViewContainer"] p {
 color:#e5f3f0 !important;}''' if st.session_state.dark else ''}
 </style>''', unsafe_allow_html=True)
 
-head, theme = st.columns([5, 1])
-with theme:
-    if st.button('☾' if not st.session_state.dark else '☀', help='Alternar modo escuro e claro'):
-        st.session_state.dark = not st.session_state.dark
-        st.rerun()
+if st.button('☾ Modo escuro' if not st.session_state.dark else '☀ Modo claro',
+             help='Alternar aparência'):
+    st.session_state.dark = not st.session_state.dark
+    st.rerun()
 st.markdown('<div class="hero"><h1>⚡ CustoClaro</h1><p>Foto da etiqueta → custo da energia em poucos passos.</p></div>', unsafe_allow_html=True)
 
-st.subheader('1. Tire uma foto da etiqueta')
-st.caption('Procure a potência indicada em W ou kW. Só o código de barras não revela o consumo.')
+st.subheader('Fotografe a etiqueta')
+st.caption('A potência precisa aparecer em W ou kW; só o código de barras não basta.')
 source = st.radio('Foto', ['Enviar foto', 'Usar câmera'], horizontal=True, label_visibility='collapsed')
 if source == 'Usar câmera':
     uploaded = st.camera_input('Fotografe a etiqueta')
@@ -160,7 +160,7 @@ if fingerprint != st.session_state.fingerprint:
     st.session_state.chat = []
 
 api_key = configured_api_key()
-with st.expander('Chave da IA (opcional)', expanded=bool(image_data and not api_key)):
+with st.expander('Ativar leitura por IA', expanded=bool(image_data and not api_key)):
     user_key = st.text_input('Gemini API Key', type='password', help='Fica apenas nesta sessão e não aparece no CSV.')
     if user_key:
         from launcher import normalize_key
@@ -169,9 +169,12 @@ with st.expander('Chave da IA (opcional)', expanded=bool(image_data and not api_
             st.success('Chave recebida. A conexão será testada ao analisar a foto.')
         except ValueError as exc:
             st.error(str(exc))
-    st.caption('A foto será enviada ao Google apenas quando você clicar em “Ler etiqueta”.')
+    st.caption('A foto só é enviada ao Google quando você pede a leitura.')
 
-if st.button('Ler etiqueta com IA', type='primary', disabled=image_data is None or not api_key, use_container_width=True):
+if image_data is not None and not api_key:
+    st.info('Para ler a foto, adicione a chave em “Ativar leitura por IA”. Ou informe a potência manualmente.')
+
+if image_data is not None and api_key and st.button('Ler potência da foto', type='primary', use_container_width=True):
     try:
         with st.spinner('Lendo a potência...'):
             result = read_label(*image_data, api_key=api_key)
@@ -202,15 +205,22 @@ if st.session_state.reading:
     if reading.notes:
         st.caption(reading.notes)
 
-st.subheader('2. Confira e calcule')
-st.number_input('Potência (W)', min_value=0.0, max_value=1_000_000.0, step=10.0,
-                key='watts', on_change=power_changed)
-st.number_input('Minutos de uso por dia', min_value=0, max_value=1440, step=5, key='minutes')
-with st.expander('Ajustes: tarifa e dias', expanded=False):
-    st.number_input('Dias de uso no mês', min_value=1, max_value=31, step=1, key='days')
-    st.number_input('Tarifa (R$/kWh)', min_value=0.0, max_value=1000.0,
-                    step=0.05, format='%.2f', key='tariff')
-    st.caption('R$ 0,90/kWh é só um exemplo; use o valor da sua conta para uma estimativa melhor.')
+if st.session_state.reading:
+    st.subheader('Confira a potência')
+    st.number_input('Potência (W)', min_value=0.0, max_value=1_000_000.0, step=10.0,
+                    key='watts', on_change=power_changed)
+else:
+    with st.expander('Não conseguiu ler a foto? Informe os watts', expanded=False):
+        st.number_input('Potência (W)', min_value=0.0, max_value=1_000_000.0, step=10.0,
+                        key='watts', on_change=power_changed)
+
+if st.session_state.watts > 0:
+    st.number_input('Minutos de uso por dia', min_value=0, max_value=1440, step=5, key='minutes')
+    with st.expander('Ajustar tarifa e dias', expanded=False):
+        st.number_input('Dias de uso no mês', min_value=1, max_value=31, step=1, key='days')
+        st.number_input('Tarifa (R$/kWh)', min_value=0.0, max_value=1000.0,
+                        step=0.05, format='%.2f', key='tariff')
+        st.caption('R$ 0,90/kWh é só um exemplo. Consulte sua conta para maior precisão.')
 
 if st.session_state.watts > 0 and st.session_state.reading and not st.session_state.confirmed:
     if st.button('Confirmar potência', type='primary', use_container_width=True):
@@ -224,47 +234,47 @@ if st.session_state.watts > 0 and (not st.session_state.reading or st.session_st
                                 days_per_month=st.session_state.days,
                                 tariff_per_kwh=st.session_state.tariff)
     st.metric('Custo por mês', brl(estimate.monthly_brl))
-    a, b = st.columns(2)
-    a.metric('Energia por mês', f'{pt_number(estimate.monthly_kwh)} kWh')
-    b.metric('Custo em 12 meses', brl(estimate.annual_brl))
+    st.write(f'**{pt_number(estimate.monthly_kwh)} kWh/mês** · **{brl(estimate.annual_brl)} em 12 meses**')
     st.write(f'Cada uso de {st.session_state.minutes} minutos custa cerca de '
              f'**{brl(estimate.monthly_brl / st.session_state.days)}**.')
-    st.caption(f'{pt_number(estimate.watts, 0)} W × {st.session_state.minutes} min/dia × '
-               f'{st.session_state.days} dias × R$ {pt_number(estimate.tariff_per_kwh)}/kWh. '
-               'Estimativa, não medição.')
+    with st.expander('Como chegamos a esse valor?'):
+        st.write(f'{pt_number(estimate.watts, 0)} W × {st.session_state.minutes} min/dia × '
+                 f'{st.session_state.days} dias × R$ {pt_number(estimate.tariff_per_kwh)}/kWh.')
+        st.caption('Estimativa, não medição. Aparelhos com potência variável podem consumir diferente.')
     st.download_button('Baixar resultado (CSV)',
                        data=csv_report(st.session_state.name, estimate, st.session_state.source),
                        file_name='custoclaro_resultado.csv', mime='text/csv', use_container_width=True)
-else:
-    st.info('Envie uma foto e confirme a potência, ou digite os watts para simular sem IA.')
+elif st.session_state.reading and not st.session_state.confirmed:
+    st.info('Confira e confirme a potência para ver o custo.')
 
-st.subheader('Dúvidas sobre esta conta')
-st.caption('Pergunte “e se usar 5 minutos?” ou “por que o valor é uma estimativa?”.')
-if api_key:
-    st.caption('Perguntas abertas enviam a pergunta e os números desta simulação à API do Google. Comparações de minutos são calculadas aqui.')
-for role, message in st.session_state.chat[-6:]:
-    with st.chat_message(role):
-        st.write(message)
-if question := st.chat_input('Pergunte sobre o custo deste aparelho'):
-    numeric_question = bool(re.search(r'\d+(?:[.,]\d+)?\s*(?:minutos?|min|horas?|h)\b', question.casefold()))
-    if estimate is None or numeric_question or not api_key:
-        answer = contextual_reply(question, estimate, st.session_state.name)
-    else:
-        context = (f'Aparelho: {st.session_state.name}; potência: {pt_number(estimate.watts)} W; '
-                   f'uso: {st.session_state.minutes} minutos/dia; dias: {st.session_state.days}; '
-                   f'tarifa: R$ {pt_number(estimate.tariff_per_kwh)}/kWh; '
-                   f'energia mensal: {pt_number(estimate.monthly_kwh)} kWh; '
-                   f'custo mensal: {brl(estimate.monthly_brl)}; '
-                   f'12 meses iguais: {brl(estimate.annual_brl)}. '
-                   f'Leitura da foto: {st.session_state.reading.notes if st.session_state.reading else "nenhuma"}.')
-        try:
-            with st.spinner('Respondendo sobre sua conta...'):
-                answer = answer_about_estimate(question, context, api_key=api_key)
-        except Exception:
+if estimate is not None:
+    st.subheader('Pergunte sobre esta conta')
+    st.caption('Pergunte “e se usar 5 minutos?” ou “por que o valor é uma estimativa?”.')
+    if api_key:
+        st.caption('Perguntas abertas enviam a pergunta e os números desta simulação à API do Google. Comparações de minutos são calculadas aqui.')
+    for role, message in st.session_state.chat[-6:]:
+        with st.chat_message(role):
+            st.write(message)
+    if question := st.chat_input('Pergunte sobre o custo deste aparelho'):
+        numeric_question = bool(re.search(r'\d+(?:[.,]\d+)?\s*(?:minutos?|min|horas?|h)\b', question.casefold()))
+        if estimate is None or numeric_question or not api_key:
             answer = contextual_reply(question, estimate, st.session_state.name)
-            st.caption('IA indisponível agora. Resposta baseada apenas nos cálculos locais.')
-    st.session_state.chat = (st.session_state.chat + [('user', question), ('assistant', answer)])[-6:]
-    with st.chat_message('user'):
-        st.write(question)
-    with st.chat_message('assistant'):
-        st.write(answer)
+        else:
+            context = (f'Aparelho: {st.session_state.name}; potência: {pt_number(estimate.watts)} W; '
+                       f'uso: {st.session_state.minutes} minutos/dia; dias: {st.session_state.days}; '
+                       f'tarifa: R$ {pt_number(estimate.tariff_per_kwh)}/kWh; '
+                       f'energia mensal: {pt_number(estimate.monthly_kwh)} kWh; '
+                       f'custo mensal: {brl(estimate.monthly_brl)}; '
+                       f'12 meses iguais: {brl(estimate.annual_brl)}. '
+                       f'Leitura da foto: {st.session_state.reading.notes if st.session_state.reading else "nenhuma"}.')
+            try:
+                with st.spinner('Respondendo sobre sua conta...'):
+                    answer = answer_about_estimate(question, context, api_key=api_key)
+            except Exception:
+                answer = contextual_reply(question, estimate, st.session_state.name)
+                st.caption('IA indisponível agora. Resposta baseada apenas nos cálculos locais.')
+        st.session_state.chat = (st.session_state.chat + [('user', question), ('assistant', answer)])[-6:]
+        with st.chat_message('user'):
+            st.write(question)
+        with st.chat_message('assistant'):
+            st.write(answer)
