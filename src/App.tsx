@@ -32,7 +32,7 @@ import {
   Wallet,
   X,
 } from "lucide-react";
-import { formatDecimal, postJson, request } from "./api";
+import { formatDecimal, formatPower, postJson, request } from "./api";
 import type { Estimate, EstimateInput, HouseResult, Reading } from "./api";
 
 type Screen = "home" | "analyze" | "house" | "history";
@@ -655,44 +655,6 @@ export default function App() {
                     </div>
                   </div>
                 </section>
-                <section className="card example-card">
-                  <div className="section-title">
-                    <h3>Exemplo de cálculo</h3>
-                    <p>Ilustrativo · tarifa de R$ 0,90/kWh, 30 dias de uso.</p>
-                  </div>
-                  <div className="example-content">
-                    <span className="device-icon">
-                      <Activity size={24} />
-                    </span>
-                    <div>
-                      <b>Chuveiro elétrico</b>
-                      <small>5.500 W · 10 minutos/dia</small>
-                    </div>
-                    <div className="example-number">
-                      <b>R$ 24,75</b>
-                      <small>por mês</small>
-                    </div>
-                    <button
-                      className="round-next"
-                      aria-label="Experimentar exemplo"
-                      onClick={() => {
-                        setReading(null);
-                        setPreview(null);
-                        setConfirmed(true);
-                        setDraft((previous) => ({
-                          ...previous,
-                          name: "Chuveiro elétrico",
-                          watts: 5500,
-                          minutes: 10,
-                          units: 1,
-                        }));
-                        navigate("analyze");
-                      }}
-                    >
-                      <ArrowRight size={19} />
-                    </button>
-                  </div>
-                </section>
               </>
             )}
 
@@ -778,7 +740,7 @@ export default function App() {
                         type="number"
                         min="0"
                         max="1000000"
-                        step="1"
+                        step="any"
                         value={draft.watts || ""}
                         placeholder="Ex.: 5500"
                         onChange={(event) => {
@@ -794,7 +756,7 @@ export default function App() {
                       onClick={() => setConfirmed(true)}
                     >
                       <Check size={18} /> Confirmar potência de{" "}
-                      {formatDecimal(draft.watts, 0)} W
+                      {formatPower(draft.watts)} W
                     </button>
                   )}
                   <div className="range-label">
@@ -952,7 +914,7 @@ export default function App() {
                             </span>
                             <strong>{item.name}</strong>
                           </span>
-                          <span>{formatDecimal(Number(item.watts), 0)} W</span>
+                          <span>{formatPower(Number(item.watts))} W</span>
                           <span>{item.minutes} min/dia</span>
                           <span className="cost-cell">
                             <strong>{item.monthly_brl_label}</strong>

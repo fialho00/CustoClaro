@@ -418,8 +418,7 @@ p {
   margin-top: auto;
   text-align: right;
 }
-.how-card,
-.example-card {
+.how-card {
   padding: 24px 28px;
 }
 .steps-grid {
@@ -453,46 +452,6 @@ p {
   font-size: 12px;
   color: var(--muted);
   max-width: 220px;
-}
-.example-content {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  background: #1a2222;
-  border-radius: 12px;
-  padding: 15px;
-}
-.example-content > div:not(.example-number) {
-  display: grid;
-  gap: 5px;
-}
-.example-content b {
-  font-size: 14px;
-}
-.example-content small {
-  color: var(--muted);
-  font-size: 12px;
-}
-.example-number {
-  margin-left: auto;
-  display: grid;
-  gap: 3px;
-  text-align: right;
-}
-.example-number b {
-  color: var(--green);
-  font-size: 21px;
-}
-.round-next {
-  display: grid;
-  place-items: center;
-  border: 1px solid #2d5146;
-  border-radius: 50%;
-  background: #0f3227;
-  color: var(--green);
-  width: 36px;
-  height: 36px;
-  flex: none;
 }
 .assistant {
   height: calc(100vh - 115px);
@@ -1436,8 +1395,7 @@ p {
     justify-content: center;
     margin-top: 22px;
   }
-  .how-card,
-  .example-card {
+  .how-card {
     padding: 22px;
   }
   .steps-grid {
@@ -1468,13 +1426,6 @@ p {
   }
   .assistant .bubble {
     font-size: 13px;
-  }
-  .example-content {
-    gap: 10px;
-    flex-wrap: wrap;
-  }
-  .example-number {
-    flex: 1;
   }
   .analysis-intro,
   .params-card,

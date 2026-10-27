@@ -1,4 +1,4 @@
-"""Gemma 4 image interpretation with untrusted-output validation."""
+"""Gemini image interpretation with untrusted-output validation."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ def configured_api_key() -> str | None:
 
 
 POWER_PATTERN = re.compile(
-    r"(?<![\w.,+\-])(?P<amount>\d+(?:[.,]\d+)*)\s*(?P<unit>k?W)(?![\w/])",
+    r"(?<![\w.,+\-])(?P<amount>\d+(?:[.,]\d+)*)\s*(?P<unit>kilowatts?|quilowatts?|kW|watts?|W)(?![\w/\-])",
     re.IGNORECASE,
 )
 
@@ -32,6 +32,12 @@ Não confunda tensão (V), corrente (A), potência elétrica (W) e energia (kWh)
 Potência nominal ou potência de entrada, em watts, é o campo que precisamos.
 Se houver somente volts e amperes, NÃO calcule nem adivinhe a potência.
 Se a etiqueta mostrar kW, converta explicitamente 1 kW = 1000 W.
+Reconheça também as unidades escritas por extenso, como "10.5 watts".
+Em lâmpadas, NÃO use a potência "equivalente" de uma incandescente
+(por exemplo, 60 W equivalente) como consumo real da lâmpada LED.
+Se houver "rated power" e "defrost power", escolha "rated power";
+o degelo é um circuito específico, não a potência nominal do aparelho.
+Não confunda potência mecânica de saída com entrada elétrica consumida.
 Se existirem potências diferentes, escolha a potência nominal de consumo
 claramente identificada; caso contrário retorne null e explique a ambiguidade.
 Se a potência não estiver legível/inequívoca, use null.
@@ -68,8 +74,14 @@ def evidence_power_values(evidence: str) -> set[Decimal]:
     """
     values: set[Decimal] = set()
     for match in POWER_PATTERN.finditer(evidence):
+        before = evidence[max(0, match.start() - 25):match.start()].casefold()
+        after = evidence[match.end():match.end() + 20].casefold()
+        if (re.search(r"(?:equivalent(?:e)?|equiv\.?)(?:\s+(?:to|a))?\s*$", before)
+                or re.match(r"\s*(?:equivalent(?:e)?|equiv\.?)\b", after)):
+            continue
         token = match.group("amount")
-        multiplier = Decimal(1000) if match.group("unit").lower() == "kw" else Decimal(1)
+        unit = match.group("unit").casefold()
+        multiplier = Decimal(1000) if unit.startswith(("kw", "kilowatt", "quilowatt")) else Decimal(1)
         candidates: set[str] = set()
         if "." in token and "," in token:
             decimal_separator = "." if token.rfind(".") > token.rfind(",") else ","
@@ -88,7 +100,7 @@ def evidence_power_values(evidence: str) -> set[Decimal]:
 def parse_label_response(content: str, model: str = DEFAULT_MODEL) -> LabelReading:
     """Parse a model's JSON reply; never assume extracted wattage is correct."""
     if not content or not content.strip():
-        raise ValueError("A Gemma retornou uma resposta vazia.")
+        raise ValueError("A IA retornou uma resposta vazia.")
 
     cleaned = content.strip()
     if cleaned.startswith("```"):
@@ -99,10 +111,10 @@ def parse_label_response(content: str, model: str = DEFAULT_MODEL) -> LabelReadi
     try:
         data = json.loads(cleaned)
     except json.JSONDecodeError as exc:
-        raise ValueError("A Gemma não retornou JSON válido. Tente outra foto.") from exc
+        raise ValueError("A IA não retornou JSON válido. Tente outra foto.") from exc
 
     if not isinstance(data, dict):
-        raise ValueError("A Gemma retornou um formato inesperado.")
+        raise ValueError("A IA retornou um formato inesperado.")
 
     value = data.get("power_watts")
     power: Decimal | None
@@ -146,7 +158,7 @@ def read_label(
     model: str = DEFAULT_MODEL,
     api_key: str | None = None,
 ) -> LabelReading:
-    """Send an image to Gemma 4; images are never persisted by this app."""
+    """Send an image to Gemini; images are never persisted by this app."""
     if mime_type not in SUPPORTED_MIME_TYPES:
         raise ValueError("Use uma imagem JPEG, PNG ou WebP.")
     if not image_bytes or len(image_bytes) > MAX_UPLOAD_BYTES:

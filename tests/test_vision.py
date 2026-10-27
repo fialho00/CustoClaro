@@ -58,6 +58,24 @@ class GemmaOutputTests(unittest.TestCase):
         )
         self.assertEqual(result.power_watts, Decimal("1500"))
 
+    def test_real_label_english_watts_and_equivalent_bulb_are_handled(self):
+        reading = parse_label_response(
+            '{"appliance":"Lâmpada","power_watts":10.5,'
+            '"evidence":"Energy Used 10.5 watts","confidence":"alta"}'
+        )
+        self.assertEqual(reading.power_watts, Decimal("10.5"))
+        self.assertIn(Decimal("1450"), evidence_power_values("Rated input 1.45 kilowatts"))
+        self.assertIn(Decimal("900"), evidence_power_values("Potência 0,9 quilowatt"))
+        self.assertNotIn(Decimal(60), evidence_power_values("60W equivalent"))
+        self.assertNotIn(Decimal(60), evidence_power_values("equivalent to 60 watts"))
+        self.assertIn(Decimal(9), evidence_power_values("Energy used 9W; 60W equivalent"))
+
+        incorrect = parse_label_response(
+            '{"appliance":"Lâmpada","power_watts":60,'
+            '"evidence":"60W equivalent","confidence":"alta"}'
+        )
+        self.assertIsNone(incorrect.power_watts)
+
     def test_unexpected_or_unsafe_outputs(self):
         invalid = [
             "não sei", "", "[]", "null",

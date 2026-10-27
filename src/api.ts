@@ -79,3 +79,9 @@ export function formatDecimal(value: number, digits = 2): string {
     maximumFractionDigits: digits,
   }).format(value);
 }
+
+export function formatPower(value: number): string {
+  return new Intl.NumberFormat("pt-BR", {
+    maximumFractionDigits: 3,
+  }).format(value);
+}
