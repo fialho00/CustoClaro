@@ -6,8 +6,8 @@ O novo aplicativo tem interface **React + Vite**, com design responsivo escuro, 
 
 ## Usar no Windows
 
-1. Instale **Python 3.10 ou superior** e **Node.js LTS**.
-2. Abra `Executavel.bat`. Na primeira vez, aguarde instalar as dependências. Nas demais, o script recompila a interface e abre o navegador em `http://127.0.0.1:8501`.
+1. Instale **Python 3.10 ou superior**. Node.js só é necessário para modificar e recompilar o frontend.
+2. Abra `Executavel.bat`. Na primeira vez, aguarde instalar as dependências Python. O script usa a interface compilada incluída no repositório e abre o navegador em `http://127.0.0.1:8501`.
 3. Se você já possui `GEMINI_API_KEY` no ambiente, ela é usada automaticamente. O iniciador também reconhece a chave privada em `Documentos/.env` (`%USERPROFILE%\Documents\.env`) **sem copiar esse arquivo para o projeto**.
 4. Toque em **Tirar foto** ou **Enviar imagem**, confira a potência extraída da placa de dados (W ou kW), confirme e ajuste o tempo de uso. Também é possível informar os watts manualmente.
 
@@ -29,7 +29,7 @@ O Vite encaminha `/api/*` para `http://127.0.0.1:8000`; em outro terminal, execu
 python -m uvicorn api.index:app --host 127.0.0.1 --port 8000
 ```
 
-Para validar a versão compilada localmente:
+Para validar a versão compilada localmente (ou regenerá-la depois de editar React/CSS):
 
 ```bash
 npm run build

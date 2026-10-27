@@ -23,7 +23,8 @@ echo Instalando dependencias. A primeira abertura precisa de internet...
 if errorlevel 1 goto failed
 copy /y requirements.txt .venv\requirements.installed >nul
 :webdependencies
-where npm >nul 2>&1
+if exist "dist\index.html" goto launch
+where npm.cmd >nul 2>&1
 if errorlevel 1 goto missingnode
 if not exist "node_modules\vite\bin\vite.js" goto npminstall
 if not exist ".venv\package-lock.installed" goto npminstall
@@ -31,19 +32,19 @@ fc /b package-lock.json .venv\package-lock.installed >nul 2>&1
 if not errorlevel 1 goto webbuild
 :npminstall
 echo Preparando interface visual...
-call npm ci --no-audit --no-fund
+call npm.cmd ci --no-audit --no-fund
 if errorlevel 1 goto failed
 copy /y package-lock.json .venv\package-lock.installed >nul
 :webbuild
 echo Atualizando a interface...
-call npm run build
+call npm.cmd run build
 if errorlevel 1 goto failed
 :launch
 ".venv\Scripts\python.exe" launcher.py
 if errorlevel 1 goto failed
 exit /b 0
 :missingnode
-echo Instale Node.js LTS em https://nodejs.org/ e execute este arquivo novamente.
+echo A interface compilada nao foi encontrada. Instale Node.js LTS em https://nodejs.org/
 pause
 exit /b 1
 :missingpython
