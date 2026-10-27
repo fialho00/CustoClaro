@@ -14,7 +14,7 @@ from dotenv import load_dotenv
 from PIL import Image, ImageOps, UnidentifiedImageError
 
 from core import brl, calculate_energy, pt_number, safe_spreadsheet_text
-from vision import DEFAULT_MODEL, MAX_UPLOAD_BYTES, LabelReading, read_label
+from vision import DEFAULT_MODEL, MAX_UPLOAD_BYTES, LabelReading, configured_api_key, read_label
 
 load_dotenv(Path(__file__).resolve().parent / ".env")
 
@@ -134,7 +134,7 @@ with st.sidebar:
     st.write("**IA:** Gemma 4 (modelo open-weight) pela Gemini API.")
     model = DEFAULT_MODEL
     st.code(model)
-    has_key = bool(os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY"))
+    has_key = bool(configured_api_key())
     if has_key:
         st.success("Chave encontrada. Teste a conexão usando uma foto real.")
     else:
@@ -221,8 +221,16 @@ with left:
         except ValueError as exc:
             st.error(str(exc))
         except Exception as exc:
-            st.error("A chamada à Gemma 4 falhou. Verifique chave, acesso ao modelo e internet.")
-            st.caption(f"Tipo da falha: {type(exc).__name__}")
+            code = getattr(exc, 'code', None) or getattr(exc, 'status_code', None)
+            if code in (400, 401, 403):
+                st.error('A chave foi rejeitada pela API. Confira se é uma Gemini API Key válida e se tem acesso ao modelo.')
+            elif code == 429:
+                st.error('Limite de chamadas atingido. Aguarde e tente novamente.')
+            elif code in (500, 502, 503, 504):
+                st.error('O serviço do modelo está temporariamente indisponível. Tente novamente mais tarde.')
+            else:
+                st.error('Não foi possível analisar a imagem. Verifique a conexão e tente novamente.')
+            st.caption(f"Falha: {type(exc).__name__}" + (f" (HTTP {code})" if code else ""))
 
 with right:
     st.markdown("#### Sua estimativa em três passos")
