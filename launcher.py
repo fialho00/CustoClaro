@@ -21,7 +21,7 @@ def normalize_key(value: str) -> str:
 
 def main():
     os.chdir(ROOT)
-    print('CustoClaro — fotografe, confira e calcule.')
+    print('CustoClaro - fotografe, confira e calcule.')
     print('A chave fica somente na memoria durante esta execucao; nenhum .env sera criado.')
     key = ''
     while True:
@@ -61,6 +61,7 @@ def main():
         try:
             subprocess.run([sys.executable, '-m', 'streamlit', 'run', str(ROOT / 'app.py'),
                             '--server.address=127.0.0.1', '--server.headless=false',
+                            '--server.showEmailPrompt=false',
                             '--browser.gatherUsageStats=false'], env=env, check=True)
         except KeyboardInterrupt:
             pass
