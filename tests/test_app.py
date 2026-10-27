@@ -3,10 +3,13 @@ import csv
 import io
 import unittest
 from decimal import Decimal
+from datetime import date
 from pathlib import Path
+from unittest.mock import patch
 from streamlit.testing.v1 import AppTest
 from core import calculate_energy
 from vision import LabelReading
+from tariffs import OfficialTariff
 from app import csv_report, contextual_reply
 
 APP_PATH = str(Path(__file__).resolve().parents[1] / 'app.py')
@@ -20,7 +23,7 @@ class StreamlitAppTests(unittest.TestCase):
         watts.set_value(5500.0).run(timeout=30)
         self.assertFalse(app.exception)
         metrics = {m.label: m.value for m in app.metric}
-        self.assertEqual(metrics['Custo por mês'], 'R$ 24,75')
+        self.assertEqual(metrics['Custo estimado/mês'], 'R$ 24,75')
 
     def test_photo_requires_explicit_confirmation_even_after_edit(self):
         app = AppTest.from_file(APP_PATH).run(timeout=30)
@@ -44,3 +47,20 @@ class StreamlitAppTests(unittest.TestCase):
         rows = list(csv.reader(report[1:], delimiter=';'))
         self.assertEqual(len(rows[0]), len(rows[1]))
         self.assertTrue(rows[1][0].startswith("'"))
+
+    def test_official_tariff_is_applied_and_recalculates(self):
+        official = OfficialTariff('Neoenergia Brasília', Decimal('0.77996'),
+                                 date(2026, 10, 22), date(2027, 10, 21))
+        with patch('tariffs.search_distributors', return_value=['Neoenergia Brasília']), \
+             patch('tariffs.lookup_residential_tariff', return_value=official), \
+             patch('tariffs.current_flag', return_value=('Verde', Decimal('0'))):
+            app = AppTest.from_file(APP_PATH).run(timeout=30)
+            next(i for i in app.number_input if i.label == 'Potência (W)').set_value(5500.0).run(timeout=30)
+            next(i for i in app.text_input if i.label == 'Distribuidora da sua conta').set_value('Neoenergia Brasília').run(timeout=30)
+            next(b for b in app.button if b.label == 'Procurar tarifa oficial').click().run(timeout=30)
+            next(b for b in app.button if b.label == 'Usar tarifa base da ANEEL').click().run(timeout=30)
+            self.assertFalse(app.exception)
+            self.assertEqual(app.session_state['tariff'], 0.77996)
+            self.assertEqual(next(m.value for m in app.metric if m.label == 'Custo estimado/mês'), 'R$ 21,45')
+            next(i for i in app.text_input if i.label == 'Distribuidora da sua conta').set_value('Outra').run(timeout=30)
+            self.assertEqual(app.session_state['distributors'], [])
