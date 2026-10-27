@@ -2,7 +2,39 @@
 
 Uma etiqueta elétrica vira uma estimativa clara de consumo. Projeto de Alexandre Bezerra, Maria Eduarda e Gabriel Fialho para o Hack Day.
 
-O novo aplicativo tem interface **React + Vite**, com design responsivo escuro, tela inicial para fotografar etiquetas, cálculo revisável, **Minha casa**, histórico de simulações e **Assistente CustoClaro** em destaque. O backend **FastAPI** reaproveita os módulos Python originais de matemática, leitura por IA e consulta de tarifas. O antigo protótipo Streamlit continua em `app.py`, mas não é mais a interface principal.
+O aplicativo tem interface **React + Vite**, com design responsivo escuro, tela inicial para fotografar etiquetas, cálculo revisável, **Minha casa**, histórico de simulações e a IA **Nom Nom** em destaque. O backend **FastAPI** reaproveita os módulos Python originais de matemática, leitura por IA e consulta de tarifas. O antigo protótipo Streamlit continua em `app.py`, mas não é mais a interface principal.
+
+## Objetivo do CustoClaro
+
+**Transformar consumo elétrico em decisões simples e econômicas, com a Nom Nom como principal forma de interação.** A pessoa deve conseguir entender o custo de um eletrodoméstico, estimar gastos mensais de sua casa, comparar alternativas mais eficientes e descobrir formas práticas de economizar sem precisar conhecer fórmulas, tarifas ou especificações técnicas.
+
+- **IA primeiro:** a Nom Nom, representada por um coala com capacete de eletricista e raio, explica resultados em português claro e encaminha para ações reais do app (fotografar etiqueta, pesquisar aparelhos, calcular e organizar a casa). A conversa fica restrita a energia, eficiência, tarifas e despesas relacionadas.
+- **Transparência:** cada estimativa deve mostrar os dados usados, distinguir leitura de etiqueta de hipótese e permitir correção pelo usuário. A IA interpreta e explica; **cálculos financeiros e energéticos são determinísticos**.
+- **Automação com consentimento:** pedir localização somente quando necessária e autorizada; sugerir distribuidoras e tarifas, mas permitir conferência da conta. Uma coordenada geográfica, sozinha, não comprova a distribuidora contratada.
+- **Comparação útil:** permitir pesquisar produtos reais, analisar consumo, eficiência, preço e custo mensal com fontes verificáveis. Não inventar ofertas, fichas técnicas ou preços ausentes.
+- **Privacidade e acessibilidade:** não expor segredos no navegador, não armazenar fotos no servidor e manter a interface rápida, responsiva e legível no celular.
+
+### Estado atual e evolução
+
+**Implementado no repositório:** foto ou câmera com leitura assistida por IA; conferência manual da potência; estimativa de kWh e reais; cadastro temporário de aparelhos em **Minha casa**; chat Nom Nom, com respostas locais para cálculos simples e Gemini para perguntas abertas; pesquisa fundamentada de eletrodomésticos; consulta aproximada de tarifas e localização mediante permissão; histórico nesta sessão.
+
+**Próximos objetivos (não confundir com recursos já garantidos):** memória persistente e sincronizada da casa, identificação assistida da distribuidora pela fatura/CEP com confirmação, decomposição auditável de tributos e bandeiras, recomendações personalizadas e comparação ampliada entre lojas. Medições reais e preços atualizados exigirão fontes e integrações confiáveis.
+
+## Logo e identidade
+
+A identidade visual usa verde-petróleo, verde-menta e amarelo elétrico. O mascote e símbolo do app é **Nom Nom**, um coala de capacete amarelo com um raio. O arquivo principal fica em `public/nomnom-logo.png` e é usado no cabeçalho, no chat e como favicon. Para evolução do projeto e critérios de qualidade, consulte `AGENTS.md`.
+
+## Configurar a API Gemini
+
+**A integração com o Gemini já existe.** Não é preciso adicionar a chave ao código nem à interface. Ela é usada **somente pelo servidor Python**, para interpretar etiquetas e responder perguntas relacionadas a energia. Os cálculos manuais funcionam sem API.
+
+1. Gere uma chave no [Google AI Studio](https://aistudio.google.com/apikey). Verifique limites de uso e faturamento aplicáveis à sua conta.
+2. **Windows com `Executavel.bat` (mais simples):** crie `%USERPROFILE%\Documents\.env` e coloque uma linha `GEMINI_API_KEY=SUA_CHAVE`. O iniciador já lê esse arquivo privado, sem movê-lo para o repositório.
+3. **Desenvolvimento com FastAPI:** defina a variável `GEMINI_API_KEY` no ambiente do processo que executa `uvicorn`. No PowerShell, para **apenas o terminal atual**: `$env:GEMINI_API_KEY = "SUA_CHAVE"`. Reinicie o servidor depois da alteração.
+4. **Hospedagem na Vercel:** em *Project → Settings → Environment Variables*, crie `GEMINI_API_KEY` para os ambientes desejados (por exemplo, Production) e faça um novo deploy.
+5. Teste `/api/health`: `ai_available: true` indica **somente que a chave foi detectada**. Depois confirme com uma pergunta real no chat e uma etiqueta com potência legível; esse é o teste efetivo da API.
+
+**Segurança:** nunca publique seu `.env`, cole chaves em issues/prints, use `VITE_GEMINI_API_KEY`, nem chame a API Gemini diretamente do JavaScript do visitante. O arquivo `.env.example` é apenas um modelo sem segredo. Se uma chave for exposta, revogue-a no Google AI Studio e gere outra. A chave não deve ser enviada a este chat.
 
 ## Usar no Windows
 
@@ -46,7 +78,7 @@ Os testes originais que importam o protótipo Streamlit também precisam das dep
 3. Adicione a variável de ambiente de **servidor** `GEMINI_API_KEY` na Vercel. Nunca adicione `VITE_GEMINI_API_KEY`: qualquer variável `VITE_` pode ser incorporada ao JavaScript do visitante.
 4. Faça o deploy e **teste `/api/health`, uma foto real e o chat** no domínio publicado antes da apresentação. O endpoint `/api/health` retorna apenas a disponibilidade da IA, jamais a chave.
 
-O frontend chama `/api/*`, e a função Python em `api/index.py` calcula resultados, consulta a tarifa e usa Gemini. Em ambiente publicado, é necessário validar o comportamento das reescritas FastAPI no domínio real.
+O frontend chama `/api/*`, e a função Python em `api/index.py` calcula resultados, consulta a tarifa e usa Gemini. Em ambiente publicado, é necessário validar o comportamento das reescritas FastAPI no domínio real. O projeto deve usar segredos no ambiente **do servidor**, nunca em variáveis `VITE_*`.
 
 ## Como funciona
 

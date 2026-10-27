@@ -95,10 +95,16 @@ p {
 .brand-small {
   gap: 8px;
 }
-.brand-mark {
-  color: var(--green);
-  fill: #30d5a009;
+.brand-logo {
+  display: block;
+  width: 42px;
+  height: 42px;
+  object-fit: contain;
   flex: none;
+}
+.brand-small .brand-logo {
+  width: 35px;
+  height: 35px;
 }
 .brand-name {
   font-size: 25px;
@@ -481,8 +487,12 @@ p {
   font-size: 11px;
   margin-top: 4px;
 }
-.assistant-symbol {
-  color: var(--green);
+.assistant-avatar {
+  display: block;
+  width: 42px;
+  height: 42px;
+  object-fit: contain;
+  flex: none;
 }
 .online-status {
   margin-left: auto;
@@ -628,7 +638,7 @@ p {
 }
 .product-filters {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
 }
 .product-filters input,
@@ -742,7 +752,7 @@ p {
   font-size: 12px;
   font-weight: 700;
 }
-.modal-backdrop.camera-overlay {
+.camera-overlay {
   z-index: 110;
 }
 .camera-dialog {
@@ -776,7 +786,6 @@ p {
   gap: 11px;
 }
 .bot-mark {
-  color: var(--green);
   display: grid;
   place-items: center;
   border: 1px solid #29483e;
@@ -785,6 +794,13 @@ p {
   width: 32px;
   height: 32px;
   flex: none;
+  overflow: hidden;
+}
+.bot-mark img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
 }
 .bubble {
   background: #202a2a;
@@ -1566,6 +1582,9 @@ p {
   .product-filters {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+  .product-filters label:last-child {
+    grid-column: 1 / -1;
+  }
   .product-metrics strong {
     font-size: 13px;
   }
@@ -1611,7 +1630,7 @@ p {
   .mobile-header .brand-name {
     font-size: 22px;
   }
-  .mobile-header .brand-mark {
+  .mobile-header .brand-logo {
     width: 27px;
     height: 27px;
   }
