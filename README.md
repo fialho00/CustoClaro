@@ -1,167 +1,42 @@
 # CustoClaro ⚡
 
-**Da foto de uma etiqueta elétrica a uma estimativa compreensível de consumo.**
+Foto da etiqueta elétrica → potência revisada → estimativa de custo. Projeto de Alexandre Bezerra, Maria Eduarda e Gabriel Fialho.
 
-MVP open-source para o Hacktoberfest Hack Day Brasília x SENAI DF (27/10/2026),
-voltado às categorias **Best Open-Source AI Project** e **Best Use of Gemma 4**.
+## Usar no Windows
 
-## Equipe
+1. Instale Python 3.10+ e baixe/extraia este repositório.
+2. Abra `Iniciar_CustoClaro.bat`. Na primeira execução, aguarde a instalação.
+3. Escolha **1** para abrir ou **3** para escolher uma foto antes de abrir.
+4. Se quiser leitura por IA, informe uma Gemini API Key na opção **2** antes de abrir, ou no campo **Chave da IA** dentro do app. Pode colar somente a chave ou `GEMINI_API_KEY=...`; não há exigência de prefixo `AIza`.
+5. No navegador, envie/tire a foto da etiqueta. Clique **Ler etiqueta com IA**, confira os W e confirme. Sem chave ou sem foto, digite os W manualmente.
+6. Informe **minutos de uso por dia**. O custo aparece logo abaixo. Tarifa e dias podem ser ajustados em **Ajustes**. A tarifa inicial R$ 0,90/kWh é apenas um exemplo.
 
-- Alexandre Bezerra
-- Maria Eduarda
-- Gabriel Fialho
+O chat inferior responde perguntas sobre **esta simulação** (por exemplo, “e se usar 5 minutos?”, “quanto no ano?”) com cálculos locais. Não é um chat geral e não substitui a leitura da foto.
 
-## O que ele faz
+## Privacidade
 
-1. O usuário envia uma foto (JPEG/PNG/WebP) da etiqueta de um aparelho.
-2. **Gemma 4**, modelo de pesos abertos, interpreta a imagem pela **Gemini API**,
-   procura um valor explícito de potência nominal (W/kW) e cita o trecho encontrado.
-3. O usuário **confirma ou corrige** a potência. Os cálculos só aparecem após
-   essa confirmação, quando há um resultado da IA. Se a IA não tiver certeza,
-   é possível preencher tudo manualmente.
-4. O aplicativo calcula o consumo com uma fórmula determinística, exibe custo
-   mensal e em 12 meses, e compara dois cenários de horas de uso.
-5. A simulação pode ser exportada em CSV.
+O iniciador não cria `.env` e não salva chaves. A chave permanece na memória do processo/sessão durante o uso; fotos, mensagens e resultados não são gravados pelo código do app. Ao clicar em **Ler etiqueta com IA**, a imagem reduzida e sem EXIF é enviada à API do Google. Considere os termos e a política de dados do provedor antes de enviar imagens sensíveis. Uma foto previamente escolhida já existe no local original do usuário. Arquivos `.env` criados por versões antigas não são lidos pelo app atual: remova-os você mesmo se não precisar deles. O CSV só inclui os dados do cálculo, sem a chave ou a foto.
 
-> **Importante:** usar apenas os campos manuais não demonstra integração com IA.
-> Para disputar a categoria Gemma 4, configure a API e demonstre uma leitura real.
+## Resultados e limites
 
-## Início rápido no Windows
+`kWh/mês = (W / 1000) × (minutos/dia / 60) × dias/mês`
 
-1. Instale Python 3.10 ou superior (marque **Add Python to PATH**).
-2. Baixe o repositório em **Code → Download ZIP** e extraia todos os arquivos.
-3. Dê dois cliques em **Iniciar_CustoClaro.bat**. A primeira execução instala as dependências e precisa de internet.
-4. Escolha **2** para cadastrar sua Gemini API Key (entrada oculta, salva apenas no `.env` local).
-5. Escolha **3** para selecionar uma imagem e abrir o aplicativo, ou **1** para abrir sem imagem.
-6. No navegador, clique em **Analisar etiqueta**, revise a potência e confirme antes de calcular.
+`custo/mês = kWh/mês × tarifa informada`
 
-No menu, a opção **4** verifica se a chave foi aceita e se o modelo está acessível,
-sem enviar foto. Cole a chave diretamente ou como `GEMINI_API_KEY=...` na opção 2.
-Se a API rejeitar a chave, crie ou copie uma chave válida no Google AI Studio.
-Essa verificação não substitui o teste de leitura com imagem real.
+A IA lê uma indicação explícita de potência W/kW e mostra a evidência; o usuário revisa o valor antes do cálculo. **Código de barras sozinho não indica potência elétrica.** A estimativa assume consumo constante e não mede o aparelho. Termostatos, ciclos, potência variável, impostos e taxas podem alterar o custo real. O custo de 12 meses assume 12 meses iguais.
 
-Selecionar a foto não a envia automaticamente ao Google. Também é possível enviar fotos diretamente no navegador. Feche o servidor com Ctrl+C na janela do iniciador. Nunca compartilhe a pasta com seu `.env`; compartilhe o link do GitHub.
+O CSV tem uma linha por simulação, delimitador `;`, marcador UTF-8 e cabeçalhos para Excel. O layout é responsivo para navegadores de celular; para abrir no celular, hospede o app com HTTPS. O `.bat` abre somente no PC local por segurança.
 
-## Instalação (Python 3.10+)
-
-Windows/PowerShell:
-
-```powershell
-cd custoclaro
-py -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
-Copy-Item .env.example .env
-notepad .env
-streamlit run app.py
-```
-
-Linux/macOS:
+## Desenvolvimento
 
 ```bash
-cd custoclaro
-python3 -m venv .venv
-source .venv/bin/activate
+python -m venv .venv
+# Ative o ambiente e instale as dependências
 python -m pip install -r requirements.txt
-cp .env.example .env
-streamlit run app.py
-```
-
-O navegador abrirá no endereço local apresentado pelo Streamlit
-(normalmente `http://localhost:8501`).
-
-**Chave de API:** obtenha em https://aistudio.google.com/apikey e preencha
-`GEMINI_API_KEY` no arquivo `.env`. Não publique nem compartilhe esse arquivo.
-Quando a chave não está configurada, a análise de imagem é desativada, mas o
-simulador manual continua disponível.
-
-**Modelo:** `gemma-4-26b-a4b-it` pela biblioteca oficial `google-genai`.
-O projeto não usa `gemini-flash` como substituto silencioso e não exige GPU local.
-Documentação: https://ai.google.dev/gemma/docs/core/gemma_on_gemini_api
-
-**Termos dos pesos do modelo:** consulte
-https://ai.google.dev/gemma/terms — *modelo open-weight* não implica que
-os pesos estejam sob licença MIT. A licença MIT deste repositório cobre somente
-o código escrito para esta aplicação.
-
-## Como demonstrar em 90 segundos
-
-1. Abra o aplicativo e mostre que o modelo configurado é Gemma 4.
-2. Envie uma foto real de uma etiqueta **com potência em W claramente visível**.
-3. Clique em **Analisar etiqueta com Gemma 4** e mostre potência e evidência.
-4. Confirme o valor. Configure uma tarifa **de exemplo** e horas de uso.
-5. Mostre o custo do mês, a fórmula e a comparação entre dois cenários.
-6. Exporte o CSV. Explique que estimativas não substituem um medidor de energia.
-
-### Cenário de demonstração sem API
-
-O botão **Carregar ventilador de exemplo** usa dados fictícios:
-60 W × 8 h/dia × 30 dias = **14,4 kWh**; a R$ 0,90/kWh, **R$ 12,96/mês**.
-Esse modo mostra os cálculos e a interface, mas **não testa a IA**.
-
-## Fórmula e limitações
-
-`kWh/mês = (W ÷ 1000) × horas/dia × dias/mês × quantidade`
-
-`R$/mês = kWh/mês × tarifa informada (R$/kWh)`
-
-- O algoritmo de cálculo fica em `core.py` e não depende do texto da IA.
-- Estima consumo **constante** à potência fornecida; não mede o uso real.
-- Dispositivos com compressor, termostato, modos variáveis e standby podem
-  divergir muito da estimativa.
-- O custo anual representa **12 meses equivalentes**, sem reajustes.
-- A tarifa é fornecida pelo usuário. Não buscamos preços atuais de distribuidoras,
-  nem incluímos automaticamente impostos, bandeiras, tarifas mínimas ou encargos.
-- A foto é reduzida, convertida para JPEG sem EXIF e enviada ao Google somente
-  após clicar em **Analisar etiqueta**. O projeto não salva a imagem em disco.
-- A leitura da IA pode estar errada: requer confirmação humana.
-- Não tente obter consumo apenas de tensão (V) e corrente (A): o fator de potência
-  e o comportamento real do equipamento podem impedir inferências confiáveis.
-
-## Arquitetura
-
-```text
-Imagem ──> Streamlit/Pillow ──> Gemma 4 (Google GenAI) ──> Leitura + evidência
-                                                          │
-Entrada manual ────────────────────────────────────────────┤
-                                                          ▼
-                                                  Revisão do usuário
-                                                          │
-                                                          ▼
-                                                  core.py (Decimal)
-                                                          │
-                                      KPIs + gráfico + CSV + fórmula
-```
-
-Arquivos:
-
-- `app.py`: interface, fluxo, limites da imagem, exportação.
-- `vision.py`: prompt de extração, Gemini API, parser validado.
-- `core.py`: matemática determinística e formatação monetária.
-- `tests/`: testes unitários que **não necessitam chave de API**.
-
-## Testes
-
-Dentro da pasta do projeto:
-
-```bash
+python -m streamlit run app.py
 python -m unittest discover -s tests -v
-python -m compileall -q app.py core.py vision.py
 ```
 
-Além dos testes unitários, faça um teste manual com uma foto real e uma chave
-de API válida. **Nenhum teste mockado prova acesso real ao endpoint Gemma 4.**
+`vision.py` chama `gemma-4-26b-a4b-it` pela Gemini API; `core.py` realiza a matemática determinística. Testes automatizados simulam a resposta da IA. Uma leitura real depende de chave válida, disponibilidade do modelo e uma etiqueta legível.
 
-## Entrega para o Hack Day
-
-- Publicar em repositório GitHub **público** com este README e `LICENSE`.
-- Registrar o que foi efetivamente desenvolvido durante o evento e confirmar
-  com o organizador se a preparação prévia é permitida.
-- Não subir `.env`, tokens ou fotos pessoais para o repositório.
-- Um integrante envia o projeto no OrganizerHQ antes do prazo do evento,
-  selecionando as categorias às quais ele atende.
-
-## Licença
-
-Código original sob MIT. Ver `LICENSE`. Gemma 4 e componentes de terceiros
-seguem suas próprias licenças/termos.
+Código original sob MIT; o modelo e dependências seguem seus próprios termos.
