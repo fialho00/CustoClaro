@@ -21,10 +21,13 @@ import {
   LoaderCircle,
   MapPin,
   Menu,
+  MessageCircle,
   Pencil,
   Plus,
+  Search,
   Send,
   Settings2,
+  ShoppingBag,
   ShieldCheck,
   SlidersHorizontal,
   Sparkles,
@@ -33,9 +36,11 @@ import {
   X,
 } from "lucide-react";
 import { formatDecimal, formatPower, postJson, request } from "./api";
-import type { Estimate, EstimateInput, HouseResult, Reading } from "./api";
+import type {
+  Estimate, EstimateInput, HouseResult, ProductResult, ProductSearchResult, Reading,
+} from "./api";
 
-type Screen = "home" | "analyze" | "house" | "history";
+type Screen = "home" | "nomnom" | "products" | "analyze" | "house" | "history";
 type Message = { role: "user" | "assistant"; text: string };
 type SavedEstimate = { id: string; savedAt: string; estimate: Estimate };
 type TariffResponse = {
@@ -58,6 +63,8 @@ const DEFAULT_DRAFT: EstimateInput = {
 
 const NAV: { id: Screen; label: string; icon: LucideIcon }[] = [
   { id: "home", label: "Início", icon: Home },
+  { id: "nomnom", label: "Nom Nom · IA", icon: MessageCircle },
+  { id: "products", label: "Quanto isso consome?", icon: ShoppingBag },
   { id: "analyze", label: "Analisar aparelho", icon: Camera },
   { id: "house", label: "Minha casa", icon: Home },
   { id: "history", label: "Histórico", icon: History },
@@ -189,6 +196,16 @@ export default function App() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [question, setQuestion] = useState("");
   const [sending, setSending] = useState(false);
+  const [productQuery, setProductQuery] = useState("");
+  const [maxPrice, setMaxPrice] = useState("");
+  const [hoursPerDay, setHoursPerDay] = useState("4");
+  const [productSort, setProductSort] = useState("consumption");
+  const [products, setProducts] = useState<ProductResult[]>([]);
+  const [productSearching, setProductSearching] = useState(false);
+  const [productSearched, setProductSearched] = useState(false);
+  const [productError, setProductError] = useState("");
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [cameraBusy, setCameraBusy] = useState(false);
   const [utilityQuery, setUtilityQuery] = useState("");
   const [distributors, setDistributors] = useState<string[]>([]);
   const [selectedUtility, setSelectedUtility] = useState("");
@@ -199,7 +216,9 @@ export default function App() {
   const [settingsBusy, setSettingsBusy] = useState(false);
   const cameraRef = useRef<HTMLInputElement>(null);
   const galleryRef = useRef<HTMLInputElement>(null);
-  const chatBottomRef = useRef<HTMLDivElement>(null);
+  const cameraVideoRef = useRef<HTMLVideoElement>(null);
+  const cameraStreamRef = useRef<MediaStream | null>(null);
+  const chatScrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     request<{ ai_available: boolean }>("/api/health")
@@ -257,11 +276,22 @@ export default function App() {
     return () => controller.abort();
   }, [house]);
   useEffect(() => {
-    chatBottomRef.current?.scrollIntoView({
-      behavior: "smooth",
-      block: "nearest",
-    });
-  }, [messages, sending]);
+    if (screen === "nomnom" && chatScrollRef.current) {
+      const panel = chatScrollRef.current;
+      panel.scrollTop = panel.scrollHeight;
+    }
+  }, [messages, sending, screen]);
+
+  useEffect(() => {
+    if (cameraOpen && cameraVideoRef.current && cameraStreamRef.current) {
+      cameraVideoRef.current.srcObject = cameraStreamRef.current;
+      void cameraVideoRef.current.play().catch(() => undefined);
+    }
+  }, [cameraOpen]);
+
+  useEffect(() => () => {
+    cameraStreamRef.current?.getTracks().forEach((track) => track.stop());
+  }, []);
 
   function navigate(next: Screen) {
     setScreen(next);
@@ -288,10 +318,7 @@ export default function App() {
     navigate("analyze");
   }
 
-  async function onFile(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    event.target.value = "";
-    if (!file) return;
+  async function processFile(file: File) {
     setError("");
     setUploading(true);
     setReading(null);
@@ -330,6 +357,90 @@ export default function App() {
     }
   }
 
+  function onFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (file) void processFile(file);
+  }
+
+  function closeCamera() {
+    cameraStreamRef.current?.getTracks().forEach((track) => track.stop());
+    cameraStreamRef.current = null;
+    setCameraOpen(false);
+    setCameraBusy(false);
+  }
+
+  async function openCamera() {
+    if (cameraBusy) return;
+    setCameraBusy(true);
+    setError("");
+    try {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        cameraRef.current?.click();
+        return;
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: false, video: { facingMode: { ideal: "environment" } },
+      });
+      cameraStreamRef.current?.getTracks().forEach((track) => track.stop());
+      cameraStreamRef.current = stream;
+      setCameraOpen(true);
+    } catch {
+      // Mobile browsers may support the native camera even without WebRTC permission.
+      cameraRef.current?.click();
+    } finally {
+      setCameraBusy(false);
+    }
+  }
+
+  function captureCamera() {
+    const video = cameraVideoRef.current;
+    if (!video || !video.videoWidth || !video.videoHeight) {
+      setError("A câmera ainda está iniciando. Tente novamente.");
+      return;
+    }
+    const canvas = document.createElement("canvas");
+    const scale = Math.min(1, 1600 / Math.max(video.videoWidth, video.videoHeight));
+    canvas.width = Math.round(video.videoWidth * scale);
+    canvas.height = Math.round(video.videoHeight * scale);
+    const context = canvas.getContext("2d");
+    if (!context) return;
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    canvas.toBlob((blob) => {
+      if (!blob) {
+        setError("Não foi possível capturar a foto.");
+        return;
+      }
+      closeCamera();
+      void processFile(new File([blob], "etiqueta-camera.jpg", { type: "image/jpeg" }));
+    }, "image/jpeg", 0.86);
+  }
+
+  async function searchProducts() {
+    const query = productQuery.trim();
+    if (query.length < 3 || productSearching) return;
+    setProductSearching(true);
+    setProductSearched(false);
+    setProductError("");
+    setProducts([]);
+    try {
+      const result = await postJson<ProductSearchResult>("/api/products/search", {
+        query,
+        tariff: draft.tariff,
+        hours_per_day: Number(hoursPerDay),
+        days: draft.days,
+        max_price: maxPrice ? Number(maxPrice) : null,
+        sort: productSort,
+      });
+      setProducts(result.products);
+      setProductSearched(true);
+    } catch (exc) {
+      setProductError(exc instanceof Error ? exc.message : "Falha ao pesquisar produtos.");
+    } finally {
+      setProductSearching(false);
+    }
+  }
+
   async function sendMessage(custom?: string) {
     const text = (custom ?? question).trim();
     if (!text || sending) return;
@@ -339,9 +450,13 @@ export default function App() {
     try {
       const data = await postJson<{ reply: string }>("/api/chat", {
         question: text,
-        appliance:
-          screen === "analyze" && confirmed && draft.watts > 0 ? draft : null,
-        house: screen === "house" ? house : [],
+        appliance: confirmed && draft.watts > 0 ? draft : null,
+        house,
+        products: products.map((product) => ({
+          name: product.name,
+          monthly_kwh: product.monthly_kwh,
+          price_brl: product.price_brl,
+        })),
       });
       setMessages((previous) => [
         ...previous,
@@ -466,17 +581,20 @@ export default function App() {
   const title =
     screen === "home"
       ? "Visão geral"
+      : screen === "nomnom"
+        ? "Nom Nom"
+        : screen === "products"
+          ? "Quanto isso consome?"
       : screen === "analyze"
         ? "Analisar aparelho"
         : screen === "house"
           ? "Energia da minha casa"
           : "Histórico";
-  const suggestions =
-    screen === "house"
-      ? ["Qual aparelho mais pesa na conta?", "Como reduzir o consumo?"]
-      : screen === "analyze" && estimate
-        ? ["E se eu usar só 5 minutos?", "Como esse valor foi calculado?"]
-        : ["Como funciona?", "Analisar minha casa"];
+  const suggestions = [
+    "Como posso economizar energia?",
+    "Qual aparelho consome mais?",
+    "Compare os produtos pesquisados",
+  ];
 
   return (
     <div className="shell">
@@ -538,6 +656,12 @@ export default function App() {
             Início
           </button>
           <button
+            className={screen === "nomnom" ? "selected" : ""}
+            onClick={() => navigate("nomnom")}
+          >
+            Nom Nom
+          </button>
+          <button
             className={screen === "house" ? "selected" : ""}
             onClick={() => navigate("house")}
           >
@@ -564,7 +688,7 @@ export default function App() {
         {error && !settingsOpen && (
           <ErrorNote message={error} close={() => setError("")} />
         )}
-        <div className="work-layout">
+        <div className="work-layout single-layout">
           <main className="main-column">
             {screen === "home" && (
               <>
@@ -583,7 +707,7 @@ export default function App() {
                     <div className="upload-actions">
                       <button
                         className="upload-action primary"
-                        onClick={() => cameraRef.current?.click()}
+                        onClick={() => void openCamera()}
                       >
                         <Camera size={27} />
                         <span>
@@ -607,6 +731,14 @@ export default function App() {
                     <button className="text-link" onClick={startManual}>
                       <Pencil size={15} /> Informar potência manualmente
                     </button>
+                    <div className="hero-shortcuts">
+                      <button onClick={() => navigate("nomnom")}>
+                        <MessageCircle size={17} /> Conversar com Nom Nom
+                      </button>
+                      <button onClick={() => navigate("products")}>
+                        <Search size={17} /> Pesquisar eletrodomésticos
+                      </button>
+                    </div>
                   </div>
                   <div className="hero-art" aria-hidden="true">
                     <div className="label-illustration">
@@ -673,7 +805,7 @@ export default function App() {
                     </div>
                   </div>
                   <div className="secondary-actions">
-                    <button onClick={() => cameraRef.current?.click()}>
+                    <button onClick={() => void openCamera()}>
                       <Camera size={18} /> Tirar foto
                     </button>
                     <button onClick={() => galleryRef.current?.click()}>
@@ -1025,14 +1157,118 @@ export default function App() {
                 </button>
               </section>
             )}
+            {screen === "products" && (
+              <section className="card product-panel">
+                <div className="product-title">
+                  <span className="square-icon"><ShoppingBag size={24} /></span>
+                  <div>
+                    <h2>Descubra antes de comprar.</h2>
+                    <p>Pesquise pelo nome ou modelo. Compare consumo, custo mensal e preços encontrados em lojas.</p>
+                  </div>
+                </div>
+                <form className="product-search-form" onSubmit={(event) => {
+                  event.preventDefault();
+                  void searchProducts();
+                }}>
+                  <label className="product-query-label">
+                    Nome do eletrodoméstico ou modelo
+                    <div className="product-query-control">
+                      <Search size={20} />
+                      <input
+                        aria-label="Pesquisar eletrodoméstico"
+                        placeholder="Ex.: geladeira inverter 300 litros"
+                        value={productQuery}
+                        maxLength={120}
+                        onChange={(event) => setProductQuery(event.target.value)}
+                      />
+                    </div>
+                  </label>
+                  <div className="product-filters">
+                    <label>Preço máximo (R$)
+                      <input type="number" min="1" step="1" placeholder="Qualquer preço"
+                        value={maxPrice} onChange={(event) => setMaxPrice(event.target.value)} />
+                    </label>
+                    <label>Uso diário (horas)
+                      <input type="number" min="0.1" max="24" step="0.5"
+                        value={hoursPerDay} onChange={(event) => setHoursPerDay(event.target.value)} />
+                    </label>
+                    <label>Ordenar por
+                      <select value={productSort} onChange={(event) => setProductSort(event.target.value)}>
+                        <option value="consumption">Menor consumo</option>
+                        <option value="price">Menor preço</option>
+                        <option value="efficiency">Eficiência energética</option>
+                      </select>
+                    </label>
+                  </div>
+                  <button className="product-submit" type="submit" disabled={productSearching || productQuery.trim().length < 3}>
+                    {productSearching ? <LoaderCircle className="spin" size={18} /> : <Search size={18} />}
+                    {productSearching ? "Pesquisando fontes..." : "Pesquisar e comparar"}
+                  </button>
+                </form>
+                {productError && <ErrorNote message={productError} close={() => setProductError("")} />}
+                {productSearching && <p className="search-notice">A Nom Nom está procurando fichas de produtos e preços. Isso pode levar alguns segundos.</p>}
+                {productSearched && !products.length && (
+                  <div className="empty-state">
+                    <Search size={32} />
+                    <h3>Sem resultados verificáveis.</h3>
+                    <p>Tente um modelo mais específico ou retire o filtro de preço. A Nom Nom não inventa dados ausentes.</p>
+                  </div>
+                )}
+                {products.length > 0 && (
+                  <>
+                    <div className="product-results-heading">
+                      <h3>{products.length} produto{products.length > 1 ? "s" : ""} encontrado{products.length > 1 ? "s" : ""}</h3>
+                      <span>Tarifa usada: R$ {formatDecimal(draft.tariff)}/kWh</span>
+                    </div>
+                    <div className="product-results">
+                      {products.map((product, index) => (
+                        <article className="product-card" key={`${product.source_url}-${index}`}>
+                          <div className="product-card-head">
+                            <span className="product-index">{index + 1}</span>
+                            <div><h3>{product.name}</h3><small>{product.model || "Modelo não informado"} · {product.store}</small></div>
+                          </div>
+                          <div className="product-metrics">
+                            <div><span>Estimativa mensal</span><strong>{product.monthly_brl_label || "Indisponível"}</strong></div>
+                            <div><span>Consumo/mês</span><strong>{product.monthly_kwh_label || "Não informado"}</strong></div>
+                            <div><span>Preço encontrado</span><strong>{product.price_label || "Não informado"}</strong></div>
+                          </div>
+                          <div className="product-meta">
+                            <span>Eficiência: {product.efficiency || "Não informada"}</span>
+                            <span>{product.calculation_basis === "etiqueta mensal"
+                              ? "Consumo mensal declarado na etiqueta" : product.watts
+                                ? `${formatPower(Number(product.watts))} W · ${hoursPerDay} h/dia`
+                                : "Consumo não confirmado"}</span>
+                          </div>
+                          <div className="product-actions">
+                            <a href={product.source_url} target="_blank" rel="noopener noreferrer">Conferir fonte <ArrowRight size={15} /></a>
+                            {product.watts && <button onClick={() => {
+                              setDraft((old) => ({ ...old, name: product.name, watts: Number(product.watts), minutes: Number(hoursPerDay) * 60 }));
+                              setReading(null); setConfirmed(true); navigate("analyze");
+                            }}>Simular este aparelho</button>}
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                    <p className="search-notice">Os dados vêm de resultados de pesquisa e podem mudar. Confirme preço, estoque e especificações na fonte. O cálculo é uma estimativa.</p>
+                    <button className="outline-button" onClick={() => {
+                      setQuestion("Qual dos produtos pesquisados é mais econômico e por quê?");
+                      navigate("nomnom");
+                    }}><MessageCircle size={17} /> Perguntar à Nom Nom sobre a comparação</button>
+                  </>
+                )}
+              </section>
+            )}
           </main>
 
-          <aside className="assistant card" aria-label="Assistente CustoClaro">
+          {screen === "nomnom" && <section className="assistant card assistant-page" aria-label="Chat com a Nom Nom">
             <div className="assistant-heading">
               <span className="assistant-symbol">
                 <Sparkles size={22} />
               </span>
-              <h3>Assistente CustoClaro</h3>
+              <div className="assistant-identity">
+                <h3>Nom Nom</h3>
+                <small>Sua assistente de energia e consumo</small>
+              </div>
               <span
                 className={"online-status " + (aiOnline ? "" : "unavailable")}
               >
@@ -1040,16 +1276,17 @@ export default function App() {
                 {aiOnline ? "Online" : "Guias locais"}
               </span>
             </div>
-            <div className="assistant-messages" aria-live="polite">
+            <div className="assistant-messages" aria-live="polite" ref={chatScrollRef}>
+              <div className="conversation-inner">
               {!messages.length && (
                 <div className="welcome-message">
                   <div className="bot-mark">
                     <Bolt size={21} />
                   </div>
                   <div className="bubble assistant-bubble">
-                    Olá! Posso analisar uma etiqueta, explicar sua conta de
-                    energia ou ajudar a encontrar os aparelhos que mais consomem
-                    na sua casa.
+                    Oi! Eu sou a Nom Nom. Posso analisar uma etiqueta, explicar
+                    o consumo da sua casa e comparar a eficiência de aparelhos.
+                    O que você gostaria de descobrir?
                   </div>
                 </div>
               )}
@@ -1075,9 +1312,14 @@ export default function App() {
                   </div>
                 </div>
               )}
-              <div ref={chatBottomRef} />
+              </div>
             </div>
             <div className="assistant-bottom">
+              <div className="assistant-tools">
+                <button onClick={() => navigate("products")}><ShoppingBag size={17} /> Quanto isso consome?</button>
+                <button onClick={() => void openCamera()}><Camera size={17} /> Ler etiqueta</button>
+                <button onClick={() => navigate("house")}><Home size={17} /> Minha casa</button>
+              </div>
               <div className="suggestions">
                 {suggestions.map((label) => (
                   <button
@@ -1098,12 +1340,8 @@ export default function App() {
                 }}
               >
                 <input
-                  aria-label="Pergunte ao assistente"
-                  placeholder={
-                    screen === "house"
-                      ? "Pergunte sobre sua casa..."
-                      : "Pergunte sobre energia..."
-                  }
+                  aria-label="Pergunte à Nom Nom"
+                  placeholder="Pergunte sobre energia, aparelhos e consumo..."
                   value={question}
                   onChange={(event) => setQuestion(event.target.value)}
                   maxLength={800}
@@ -1117,7 +1355,7 @@ export default function App() {
                 </button>
               </form>
             </div>
-          </aside>
+          </section>}
         </div>
       </div>
 
@@ -1129,6 +1367,24 @@ export default function App() {
         capture="environment"
         onChange={onFile}
       />
+
+      {cameraOpen && (
+        <div className="modal-backdrop camera-overlay" onMouseDown={(event) => {
+          if (event.currentTarget === event.target) closeCamera();
+        }}>
+          <div className="camera-dialog" role="dialog" aria-modal="true" aria-labelledby="camera-title">
+            <div className="modal-head">
+              <div><h2 id="camera-title">Fotografar etiqueta</h2><p>Enquadre a placa com a potência em W ou kW.</p></div>
+              <button className="icon-button" aria-label="Fechar câmera" onClick={closeCamera}><X size={22} /></button>
+            </div>
+            <video ref={cameraVideoRef} autoPlay playsInline muted className="camera-live" />
+            <div className="camera-actions">
+              <button className="outline-button" onClick={closeCamera}>Cancelar</button>
+              <button className="product-submit" onClick={captureCamera}><Camera size={19} /> Capturar foto</button>
+            </div>
+          </div>
+        </div>
+      )}
       <input
         ref={galleryRef}
         className="visually-hidden"

@@ -68,6 +68,38 @@ class WebApiTests(unittest.TestCase):
         self.assertIn('Geladeira', response.json()['reply'])
         self.assertIn('R$ 77,76', response.json()['reply'])
 
+    def test_nom_nom_refuses_topics_outside_electric_energy(self):
+        for question in ('Quais são as raças de cachorros?', 'Conte uma piada', 'Qual time ganhou o futebol?'):
+            with self.subTest(question=question):
+                response = client.post('/api/chat', json={'question': question})
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.json()['source'], 'escopo')
+                self.assertIn('Nom Nom', response.json()['reply'])
+
+    def test_nom_nom_uses_grounded_product_comparison(self):
+        response = client.post('/api/chat', json={
+            'question': 'Qual produto é mais econômico?',
+            'products': [
+                {'name': 'Modelo A', 'monthly_kwh': '40', 'price_brl': '2300'},
+                {'name': 'Modelo B', 'monthly_kwh': '25', 'price_brl': '2800'},
+            ],
+        })
+        self.assertEqual(response.json()['source'], 'calculo')
+        self.assertIn('Modelo B', response.json()['reply'])
+
+    def test_product_search_checks_parameters_and_can_use_mock_sources(self):
+        invalid = client.post('/api/products/search', json={'query': 'geladeira', 'hours_per_day': 26})
+        self.assertEqual(invalid.status_code, 422)
+        with patch('api.index.configured_api_key', return_value='test-only'), patch('api.index.search_appliances') as search:
+            search.return_value = {'products': [], 'sources_found': 0, 'notice': 'Teste'}
+            response = client.post('/api/products/search', json={
+                'query': 'geladeira inverter', 'tariff': 0.8, 'hours_per_day': 3,
+                'max_price': 3000, 'sort': 'price',
+            })
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(search.call_args.kwargs['query'] if 'query' in search.call_args.kwargs else search.call_args.args[0], 'geladeira inverter')
+        self.assertEqual(search.call_args.kwargs['max_price'], Decimal('3000'))
+
     def test_upload_rejects_invalid_image_format(self):
         with patch('api.index.configured_api_key', return_value='test-only'):
             response = client.post('/api/analyze', files={'file': ('file.pdf', b'%PDF', 'application/pdf')})

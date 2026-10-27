@@ -38,6 +38,28 @@ export type HouseResult = {
   total_brl_label: string;
 };
 
+export type ProductResult = {
+  name: string;
+  model: string;
+  store: string;
+  price_brl: string | null;
+  price_label: string | null;
+  watts: string | null;
+  label_kwh_month: string | null;
+  efficiency: string | null;
+  monthly_kwh: string | null;
+  monthly_kwh_label: string | null;
+  monthly_brl_label: string | null;
+  calculation_basis: string | null;
+  source_url: string;
+};
+
+export type ProductSearchResult = {
+  products: ProductResult[];
+  sources_found: number;
+  notice: string;
+};
+
 export async function request<T>(url: string, init?: RequestInit): Promise<T> {
   let response: Response;
   try {

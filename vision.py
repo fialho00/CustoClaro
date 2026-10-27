@@ -201,8 +201,10 @@ def answer_about_estimate(question: str, context: str, *, api_key: str, model: s
     from google.genai import types
 
     instruction = (
-        'Você é o assistente do CustoClaro. Responda somente dúvidas sobre a etiqueta '
-        'elétrica e a simulação abaixo. Seja breve, claro e em português do Brasil '
+        'Você é Nom Nom, a assistente do CustoClaro. Responda SOMENTE sobre '
+        'consumo elétrico, eficiência de aparelhos, contas, custos e economia de energia; '
+        'recuse cordialmente temas alheios. Use os dados da simulação abaixo quando existirem. '
+        'Seja breve, claro e em português do Brasil '
         '(no máximo 3 frases). Use apenas números fornecidos no contexto; não faça '
         'novos cálculos nem invente tarifa, potência, medições, impostos ou recursos. '
         'Se pedirem outro tempo de uso, diga que o aplicativo calcula a comparação '

@@ -16,6 +16,7 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 from starlette.staticfiles import StaticFiles
 
 from core import brl, calculate_energy, pt_number
+from product_catalog import search_appliances
 from tariffs import current_flag, lookup_residential_tariff, reverse_location, search_distributors
 from vision import configured_api_key, read_label, answer_about_estimate
 
@@ -34,10 +35,26 @@ class EstimateInput(BaseModel):
     tariff: Decimal = Decimal("0.90")
 
 
+class ComparedProduct(BaseModel):
+    name: str = Field(max_length=120)
+    monthly_kwh: Decimal | None = None
+    price_brl: Decimal | None = None
+
+
 class ChatInput(BaseModel):
     question: str = Field(min_length=1, max_length=800)
     appliance: EstimateInput | None = None
     house: list[EstimateInput] = Field(default_factory=list, max_length=30)
+    products: list[ComparedProduct] = Field(default_factory=list, max_length=6)
+
+
+class ProductSearchInput(BaseModel):
+    query: str = Field(min_length=3, max_length=120)
+    tariff: Decimal = Decimal("0.90")
+    hours_per_day: Decimal = Decimal("4")
+    days: int = 30
+    max_price: Decimal | None = None
+    sort: str = "consumption"
 
 
 class LocationInput(BaseModel):
@@ -146,6 +163,11 @@ async def analyze(file: UploadFile = File(...)):
 
 def local_chat_reply(payload: ChatInput) -> str | None:
     question = payload.question.casefold()
+    comparable = [item for item in payload.products if item.monthly_kwh is not None and item.monthly_kwh >= 0]
+    if comparable and any(x in question for x in ("mais econômico", "mais economico", "menos consome", "mais eficiente")):
+        winner = min(comparable, key=lambda item: item.monthly_kwh)
+        return (f"Entre os modelos pesquisados com dados suficientes, {winner.name} apresenta o menor consumo "
+                f"estimado: {pt_number(winner.monthly_kwh)} kWh/mês. Confirme as especificações na fonte antes de comprar.")
     if payload.house and any(x in question for x in ("mais gasta", "mais consome", "maior", "mais pesa", "prioridade")):
         ranking = [(entry, estimate_for(entry)) for entry in payload.house]
         entry, result = max(ranking, key=lambda row: row[1].monthly_brl)
@@ -173,8 +195,39 @@ def local_chat_reply(payload: ChatInput) -> str | None:
     return None
 
 
+ENERGY_TERMS = re.compile(
+    r"energia|el[eé]tric|eletro|consum|gasto|conta|tarifa|kwh|watt|pot[eê]ncia|"
+    r"economi|efici[eê]n|aparelho|geladeira|freezer|micro.?ondas|ar.?condicionado|"
+    r"chuveiro|l[aâ]mpada|lavadora|m[aá]quina de lavar|televis|tv\b|"
+    r"computador|notebook|ventilador|secador|aquecedor|produto|modelo|loja|"
+    r"pre[çc]o|custo|minha casa|etiqueta|fotograf|analis",
+    re.IGNORECASE,
+)
+INTRO_TERMS = re.compile(r"^(oi|ol[aá]|bom dia|boa tarde|boa noite|como funciona\??|ajuda\??)[.!? ]*$", re.IGNORECASE)
+UNRELATED_TERMS = re.compile(
+    r"ra[çc]as? de cachorr|ra[çc]as? de gato|cachorro|c[aã]es\b|"
+    r"receita de bolo|conte.*piada|futebol|hor[oó]scopo|namoro|pol[ií]tica|"
+    r"ignore.*instru[çc]|desconsidere.*regras",
+    re.IGNORECASE,
+)
+OUT_OF_SCOPE = (
+    "Sou a Nom Nom e ajudo exclusivamente com energia elétrica: consumo de aparelhos, "
+    "estimativas de custo, economia e comparação de eficiência. Quer analisar algum aparelho?"
+)
+
+
+def on_topic(payload: ChatInput) -> bool:
+    question = payload.question.strip()
+    if UNRELATED_TERMS.search(question):
+        return False
+    return bool(ENERGY_TERMS.search(question) or INTRO_TERMS.fullmatch(question)
+                or payload.appliance or payload.house or payload.products)
+
+
 @app.post("/api/chat")
 def chat(payload: ChatInput):
+    if not on_topic(payload):
+        return {"reply": OUT_OF_SCOPE, "source": "escopo"}
     try:
         local = local_chat_reply(payload)
     except ValueError as exc:
@@ -190,6 +243,10 @@ def chat(payload: ChatInput):
     if payload.house:
         parts = [f"{entry.name}: {brl(estimate_for(entry).monthly_brl)}/mês" for entry in payload.house[:10]]
         context += " Itens da casa: " + "; ".join(parts)
+    if payload.products:
+        parts = [f"{entry.name}: {pt_number(entry.monthly_kwh)} kWh/mês" if entry.monthly_kwh is not None else entry.name
+                 for entry in payload.products]
+        context += " Produtos encontrados na pesquisa: " + "; ".join(parts)
     key = configured_api_key()
     if key:
         try:
@@ -201,6 +258,25 @@ def chat(payload: ChatInput):
     else:
         reply = "Posso explicar o custo, a tarifa ou comparar outro tempo de uso. Experimente perguntar: 'E se eu usar 5 minutos?'."
     return {"reply": reply, "source": "orientacao"}
+
+
+@app.post("/api/products/search")
+def products_search(payload: ProductSearchInput):
+    if not 0 < payload.tariff <= 1000 or not 0 < payload.hours_per_day <= 24 or not 1 <= payload.days <= 31:
+        raise HTTPException(status_code=422, detail="Revise tarifa, horas por dia e dias do mês.")
+    if payload.max_price is not None and not 0 < payload.max_price <= 1000000:
+        raise HTTPException(status_code=422, detail="Informe um preço máximo válido.")
+    if payload.sort not in {"consumption", "price", "efficiency"}:
+        raise HTTPException(status_code=422, detail="Ordenação inválida.")
+    key = configured_api_key()
+    if not key:
+        raise HTTPException(status_code=503, detail="A pesquisa de produtos por IA não está configurada.")
+    try:
+        return search_appliances(payload.query, api_key=key, tariff=payload.tariff,
+                                 hours_per_day=payload.hours_per_day, days=payload.days,
+                                 max_price=payload.max_price, sort=payload.sort)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="A busca em lojas está indisponível agora. Tente novamente.") from exc
 
 
 @app.get("/api/distributors")
