@@ -26,6 +26,17 @@ voltado às categorias **Best Open-Source AI Project** e **Best Use of Gemma 4**
 > **Importante:** usar apenas os campos manuais não demonstra integração com IA.
 > Para disputar a categoria Gemma 4, configure a API e demonstre uma leitura real.
 
+## Início rápido no Windows
+
+1. Instale Python 3.10 ou superior (marque **Add Python to PATH**).
+2. Baixe o repositório em **Code → Download ZIP** e extraia todos os arquivos.
+3. Dê dois cliques em **Iniciar_CustoClaro.bat**. A primeira execução instala as dependências e precisa de internet.
+4. Escolha **2** para cadastrar sua Gemini API Key (entrada oculta, salva apenas no `.env` local).
+5. Escolha **3** para selecionar uma imagem e abrir o aplicativo, ou **1** para abrir sem imagem.
+6. No navegador, clique em **Analisar etiqueta**, revise a potência e confirme antes de calcular.
+
+Selecionar a foto não a envia automaticamente ao Google. Também é possível enviar fotos diretamente no navegador. Feche o servidor com Ctrl+C na janela do iniciador. Nunca compartilhe a pasta com seu `.env`; compartilhe o link do GitHub.
+
 ## Instalação (Python 3.10+)
 
 Windows/PowerShell:
