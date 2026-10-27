@@ -35,6 +35,11 @@ voltado às categorias **Best Open-Source AI Project** e **Best Use of Gemma 4**
 5. Escolha **3** para selecionar uma imagem e abrir o aplicativo, ou **1** para abrir sem imagem.
 6. No navegador, clique em **Analisar etiqueta**, revise a potência e confirme antes de calcular.
 
+No menu, a opção **4** verifica se a chave foi aceita e se o modelo está acessível,
+sem enviar foto. Cole a chave diretamente ou como `GEMINI_API_KEY=...` na opção 2.
+Se a API rejeitar a chave, crie ou copie uma chave válida no Google AI Studio.
+Essa verificação não substitui o teste de leitura com imagem real.
+
 Selecionar a foto não a envia automaticamente ao Google. Também é possível enviar fotos diretamente no navegador. Feche o servidor com Ctrl+C na janela do iniciador. Nunca compartilhe a pasta com seu `.env`; compartilhe o link do GitHub.
 
 ## Instalação (Python 3.10+)
