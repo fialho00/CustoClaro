@@ -39,6 +39,17 @@ class ProductCatalogTests(unittest.TestCase):
                                   hours_per_day=Decimal('1'), days=30, max_price=Decimal('300'))
         self.assertEqual(rows, [])
 
+    def test_consumption_filter_excludes_missing_and_above_limit(self):
+        raw = json.dumps({'products': [
+            {'name': 'Produto Economico', 'source_index': 1, 'label_kwh_month': 12},
+            {'name': 'Produto Gastador', 'source_index': 1, 'label_kwh_month': 100},
+            {'name': 'Produto Sem Consumo', 'source_index': 1, 'price_brl': 300},
+        ]})
+        rows = normalize_products(raw, ['https://example.com'], tariff=Decimal('.9'),
+                                  hours_per_day=Decimal(2), days=30,
+                                  max_monthly_kwh=Decimal('25'))
+        self.assertEqual([item['name'] for item in rows], ['Produto Economico'])
+
 
 if __name__ == '__main__':
     unittest.main()

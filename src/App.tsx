@@ -198,6 +198,7 @@ export default function App() {
   const [sending, setSending] = useState(false);
   const [productQuery, setProductQuery] = useState("");
   const [maxPrice, setMaxPrice] = useState("");
+  const [maxConsumption, setMaxConsumption] = useState("");
   const [hoursPerDay, setHoursPerDay] = useState("4");
   const [productSort, setProductSort] = useState("consumption");
   const [products, setProducts] = useState<ProductResult[]>([]);
@@ -430,6 +431,7 @@ export default function App() {
         hours_per_day: Number(hoursPerDay),
         days: draft.days,
         max_price: maxPrice ? Number(maxPrice) : null,
+        max_monthly_kwh: maxConsumption ? Number(maxConsumption) : null,
         sort: productSort,
       });
       setProducts(result.products);
@@ -1192,6 +1194,10 @@ export default function App() {
                       <input type="number" min="0.1" max="24" step="0.5"
                         value={hoursPerDay} onChange={(event) => setHoursPerDay(event.target.value)} />
                     </label>
+                    <label>Consumo máximo (kWh/mês)
+                      <input type="number" min="0.1" max="100000" step="1" placeholder="Qualquer consumo"
+                        value={maxConsumption} onChange={(event) => setMaxConsumption(event.target.value)} />
+                    </label>
                     <label>Ordenar por
                       <select value={productSort} onChange={(event) => setProductSort(event.target.value)}>
                         <option value="consumption">Menor consumo</option>
@@ -1206,6 +1212,9 @@ export default function App() {
                   </button>
                 </form>
                 {productError && <ErrorNote message={productError} close={() => setProductError("")} />}
+                {productError && <button className="outline-button" onClick={startManual}>
+                  <Pencil size={17} /> Calcular com a potência informada
+                </button>}
                 {productSearching && <p className="search-notice">A Nom Nom está procurando fichas de produtos e preços. Isso pode levar alguns segundos.</p>}
                 {productSearched && !products.length && (
                   <div className="empty-state">

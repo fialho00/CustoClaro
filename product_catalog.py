@@ -13,7 +13,7 @@ from decimal import Decimal, InvalidOperation
 from core import brl, pt_number
 
 
-SEARCH_MODEL = "gemini-2.5-flash"
+SEARCH_MODEL = "gemini-3.8-flash"
 
 
 def _positive(value, upper: str) -> Decimal | None:
@@ -39,6 +39,7 @@ def _json_payload(text: str) -> dict:
 
 def normalize_products(raw: str, source_urls: list[str], *, tariff: Decimal,
                        hours_per_day: Decimal, days: int, max_price: Decimal | None = None,
+                       max_monthly_kwh: Decimal | None = None,
                        sort: str = "consumption") -> list[dict]:
     """Permit cards only when they reference a real grounding source.
 
@@ -72,6 +73,8 @@ def normalize_products(raw: str, source_urls: list[str], *, tariff: Decimal,
         consumption = label_kwh if label_kwh is not None else (
             watts / 1000 * hours_per_day * days if watts is not None else None
         )
+        if max_monthly_kwh is not None and (consumption is None or consumption > max_monthly_kwh):
+            continue
         cost = consumption * tariff if consumption is not None else None
         found.append({
             "name": name,
@@ -91,14 +94,18 @@ def normalize_products(raw: str, source_urls: list[str], *, tariff: Decimal,
     if sort == "price":
         found.sort(key=lambda item: (item["price_brl"] is None, Decimal(item["price_brl"] or "0")))
     elif sort == "efficiency":
-        found.sort(key=lambda item: (item["monthly_kwh"] is None, Decimal(item["monthly_kwh"] or "0")))
+        found.sort(key=lambda item: (item["efficiency"] is None,
+                                     (item["efficiency"] or "Z").casefold(),
+                                     item["monthly_kwh"] is None,
+                                     Decimal(item["monthly_kwh"] or "0")))
     else:
-        found.sort(key=lambda item: (item["monthly_brl_label"] is None, Decimal(item["monthly_kwh"] or "0")))
+        found.sort(key=lambda item: (item["monthly_kwh"] is None, Decimal(item["monthly_kwh"] or "0")))
     return found[:6]
 
 
 def search_appliances(query: str, *, api_key: str, tariff: Decimal, hours_per_day: Decimal,
                       days: int = 30, max_price: Decimal | None = None,
+                      max_monthly_kwh: Decimal | None = None,
                       sort: str = "consumption", model: str = SEARCH_MODEL) -> dict:
     from google import genai
     from google.genai import types
@@ -135,6 +142,6 @@ def search_appliances(query: str, *, api_key: str, tariff: Decimal, hours_per_da
                 sources.append(link)
     products = normalize_products(response.text or "", sources, tariff=tariff,
                                   hours_per_day=hours_per_day, days=days,
-                                  max_price=max_price, sort=sort)
+                                  max_price=max_price, max_monthly_kwh=max_monthly_kwh, sort=sort)
     return {"products": products, "sources_found": len(sources),
             "notice": "Resultados de busca, não ofertas garantidas. Confirme preço e ficha na loja. Consumo é estimado e varia conforme o uso."}

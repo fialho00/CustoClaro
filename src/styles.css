@@ -628,7 +628,7 @@ p {
 }
 .product-filters {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
 }
 .product-filters input,
@@ -742,7 +742,7 @@ p {
   font-size: 12px;
   font-weight: 700;
 }
-.camera-overlay {
+.modal-backdrop.camera-overlay {
   z-index: 110;
 }
 .camera-dialog {
@@ -1565,9 +1565,6 @@ p {
   }
   .product-filters {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .product-filters label:last-child {
-    grid-column: 1 / -1;
   }
   .product-metrics strong {
     font-size: 13px;

@@ -94,11 +94,21 @@ class WebApiTests(unittest.TestCase):
             search.return_value = {'products': [], 'sources_found': 0, 'notice': 'Teste'}
             response = client.post('/api/products/search', json={
                 'query': 'geladeira inverter', 'tariff': 0.8, 'hours_per_day': 3,
-                'max_price': 3000, 'sort': 'price',
+                'max_price': 3000, 'max_monthly_kwh': 30, 'sort': 'price',
             })
         self.assertEqual(response.status_code, 200)
         self.assertEqual(search.call_args.kwargs['query'] if 'query' in search.call_args.kwargs else search.call_args.args[0], 'geladeira inverter')
         self.assertEqual(search.call_args.kwargs['max_price'], Decimal('3000'))
+        self.assertEqual(search.call_args.kwargs['max_monthly_kwh'], Decimal('30'))
+
+    def test_product_search_reports_quota_exhaustion(self):
+        class LimitError(Exception):
+            code = 429
+
+        with patch('api.index.configured_api_key', return_value='test-only'), patch('api.index.search_appliances', side_effect=LimitError()):
+            response = client.post('/api/products/search', json={'query': 'geladeira'})
+        self.assertEqual(response.status_code, 503)
+        self.assertIn('cota', response.json()['detail'])
 
     def test_upload_rejects_invalid_image_format(self):
         with patch('api.index.configured_api_key', return_value='test-only'):

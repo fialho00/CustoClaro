@@ -54,6 +54,7 @@ class ProductSearchInput(BaseModel):
     hours_per_day: Decimal = Decimal("4")
     days: int = 30
     max_price: Decimal | None = None
+    max_monthly_kwh: Decimal | None = None
     sort: str = "consumption"
 
 
@@ -205,7 +206,7 @@ ENERGY_TERMS = re.compile(
 )
 INTRO_TERMS = re.compile(r"^(oi|ol[aá]|bom dia|boa tarde|boa noite|como funciona\??|ajuda\??)[.!? ]*$", re.IGNORECASE)
 UNRELATED_TERMS = re.compile(
-    r"ra[çc]as? de cachorr|ra[çc]as? de gato|cachorro|c[aã]es\b|"
+    r"ra[çc]as? de cachorr|ra[çc]as? de gato|"
     r"receita de bolo|conte.*piada|futebol|hor[oó]scopo|namoro|pol[ií]tica|"
     r"ignore.*instru[çc]|desconsidere.*regras",
     re.IGNORECASE,
@@ -266,6 +267,8 @@ def products_search(payload: ProductSearchInput):
         raise HTTPException(status_code=422, detail="Revise tarifa, horas por dia e dias do mês.")
     if payload.max_price is not None and not 0 < payload.max_price <= 1000000:
         raise HTTPException(status_code=422, detail="Informe um preço máximo válido.")
+    if payload.max_monthly_kwh is not None and not 0 < payload.max_monthly_kwh <= 100000:
+        raise HTTPException(status_code=422, detail="Informe um limite mensal de kWh válido.")
     if payload.sort not in {"consumption", "price", "efficiency"}:
         raise HTTPException(status_code=422, detail="Ordenação inválida.")
     key = configured_api_key()
@@ -274,9 +277,19 @@ def products_search(payload: ProductSearchInput):
     try:
         return search_appliances(payload.query, api_key=key, tariff=payload.tariff,
                                  hours_per_day=payload.hours_per_day, days=payload.days,
-                                 max_price=payload.max_price, sort=payload.sort)
+                                 max_price=payload.max_price,
+                                 max_monthly_kwh=payload.max_monthly_kwh, sort=payload.sort)
     except Exception as exc:
-        raise HTTPException(status_code=503, detail="A busca em lojas está indisponível agora. Tente novamente.") from exc
+        status = getattr(exc, "code", None) or getattr(exc, "status_code", None)
+        if status == 429:
+            message = "A cota de pesquisa da IA foi atingida. Tente mais tarde ou simule um aparelho pela potência."
+        elif status in (401, 403):
+            message = "A pesquisa online não foi autorizada pela chave deste servidor."
+        elif status == 404:
+            message = "O modelo de pesquisa online está indisponível nesta conta."
+        else:
+            message = "A busca em lojas está indisponível agora. Tente novamente."
+        raise HTTPException(status_code=503, detail=message) from exc
 
 
 @app.get("/api/distributors")
