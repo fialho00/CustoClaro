@@ -11,6 +11,8 @@ Foto da etiqueta elétrica → potência revisada → estimativa de custo. Proje
 5. No navegador, envie/tire a foto da etiqueta. Clique **Ler etiqueta com IA**, confira os W e confirme. Sem chave ou sem foto, digite os W manualmente.
 6. Informe **minutos de uso por dia**. O custo aparece logo abaixo. Tarifa e dias podem ser ajustados em **Ajustes**. A tarifa inicial R$ 0,90/kWh é apenas um exemplo.
 
+Em **Ajustar tarifa e dias**, você pode permitir a localização aproximada do navegador, procurar a distribuidora que consta em sua conta e aplicar a tarifa residencial convencional B1 vigente da [ANEEL](https://dadosabertos.aneel.gov.br/dataset/tarifas-distribuidoras-energia-eletrica). A região não determina a distribuidora com segurança; confirme a opção escolhida. O app também consulta a bandeira vigente quando disponível. Se a consulta falhar, informe a tarifa diretamente da sua conta.
+
 O chat inferior responde perguntas sobre **esta simulação**. Cenários como “e se usar 5 minutos?” são calculados localmente. Com chave de API, perguntas abertas sobre a etiqueta ou a estimativa usam Gemma 4 com os números já calculados; não é um chat geral.
 
 ## Privacidade
@@ -19,6 +21,8 @@ O iniciador não cria `.env` e não salva chaves. A chave permanece na memória 
 
 No chat com IA, cada pergunta aberta envia a pergunta e os números da simulação à API do Google. O histórico completo do chat não é enviado pelo código do app. Sem chave, o chat oferece respostas locais limitadas.
 
+A localização só é solicitada ao clicar no controle do navegador; coordenadas arredondadas a duas casas decimais são enviadas ao [OpenStreetMap/Nominatim](https://operations.osmfoundation.org/policies/nominatim/) para obter cidade e estado. O código guarda somente esse nome de região na sessão, sem gravar coordenadas. O serviço público de geocodificação tem limites e pode ficar indisponível.
+
 ## Resultados e limites
 
 `kWh/mês = (W / 1000) × (minutos/dia / 60) × dias/mês`
@@ -26,6 +30,8 @@ No chat com IA, cada pergunta aberta envia a pergunta e os números da simulaç�
 `custo/mês = kWh/mês × tarifa informada`
 
 A IA lê uma indicação explícita de potência W/kW e mostra a evidência; o usuário revisa o valor antes do cálculo. **Código de barras sozinho não indica potência elétrica.** A estimativa assume consumo constante e não mede o aparelho. Termostatos, ciclos, potência variável, impostos e taxas podem alterar o custo real. O custo de 12 meses assume 12 meses iguais.
+
+TE + TUSD (ANEEL) e a bandeira do mês, quando obtida, são **tarifa base**. ICMS, PIS/Cofins, contribuição municipal de iluminação, descontos, modalidade contratada e outras regras da fatura não são inferidos por localização. Assim, o valor em reais é uma estimativa e não uma previsão exata da conta.
 
 O CSV tem uma linha por simulação, delimitador `;`, marcador UTF-8 e cabeçalhos para Excel. O layout é responsivo para navegadores de celular; para abrir no celular, hospede o app com HTTPS. O `.bat` abre somente no PC local por segurança.
 
@@ -40,5 +46,7 @@ python -m unittest discover -s tests -v
 ```
 
 `vision.py` chama `gemma-4-26b-a4b-it` pela Gemini API; `core.py` realiza a matemática determinística. Testes automatizados simulam a resposta da IA. Uma leitura real depende de chave válida, disponibilidade do modelo e uma etiqueta legível.
+
+Para avaliar cinco imagens sintéticas reais com o modelo, defina `GEMINI_API_KEY` apenas no ambiente da sessão e execute `python scripts/test_live_labels.py`. O script apresenta a potência e evidência que o modelo realmente devolveu; sem chave válida, encerra sem simular respostas.
 
 Código original sob MIT; o modelo e dependências seguem seus próprios termos.
