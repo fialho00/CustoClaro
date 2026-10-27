@@ -48,6 +48,11 @@ st.markdown(
         border-radius: 12px; padding: 1.1rem 1.25rem; color: #185745; }
       .disclaimer { background: #fff8e9; border-radius: 12px;
         border: 1px solid #f4deb0; padding: .85rem 1rem; color: #66502b; }
+      .hero { background: linear-gradient(120deg, #123e39, #087d66); color: white;
+        border-radius: 20px; padding: 1.65rem 2rem; margin-bottom: 1.5rem; }
+      .hero h1 { color: white !important; margin: .25rem 0 .4rem; }
+      .hero p { color: #e4f8f1; margin: 0; max-width: 48rem; }
+      .hero .eyebrow { color: #b9f1db; }
     </style>
     """,
     unsafe_allow_html=True,
@@ -112,16 +117,15 @@ for key, default in {
 
 def mark_manual_power_change() -> None:
     if st.session_state.get("label_reading") is not None:
-        st.session_state["power_confirmed"] = True
-        st.session_state["source_kind"] = "ajustada manualmente após leitura com Gemma 4"
+        st.session_state["power_confirmed"] = False
+        st.session_state["source_kind"] = "ajustada manualmente após leitura com Gemma 4 — pendente de confirmação"
     elif st.session_state.get("source_kind") == "exemplo manual — sem IA":
         st.session_state["source_kind"] = "manual"
 
-st.markdown('<div class="eyebrow">⚡ Energia em números claros</div>', unsafe_allow_html=True)
-st.title("CustoClaro")
 st.markdown(
-    '<p class="subline">Descubra quanto um aparelho pode consumir e quanto isso '
-    'pode representar na sua conta. Leia a etiqueta com Gemma 4 ou informe os dados manualmente.</p>',
+    '<div class="hero"><div class="eyebrow">⚡ Energia em números claros</div>'
+    '<h1>CustoClaro</h1><p>Fotografe a etiqueta, confirme a potência e descubra '
+    'quanto o aparelho pode custar por mês. Sem foto? Preencha manualmente.</p></div>',
     unsafe_allow_html=True,
 )
 
@@ -221,17 +225,20 @@ with left:
             st.caption(f"Tipo da falha: {type(exc).__name__}")
 
 with right:
-    st.markdown("#### O que a IA faz — e o que não faz")
-    st.write("1. Examina a fotografia da etiqueta do aparelho.")
-    st.write("2. Localiza uma indicação explícita de potência em W ou kW.")
-    st.write("3. Retorna o valor, o trecho que fundamenta a leitura e eventuais dúvidas.")
-    st.write("4. **Você confirma os dados** antes de qualquer cálculo.")
-    st.info("A IA não inventa tarifa, tempo de uso nem consumo medido. Esses dados vêm de você.")
+    st.markdown("#### Sua estimativa em três passos")
+    st.write("**1.** Envie a etiqueta ou informe a potência em W.")
+    st.write("**2.** Confira a leitura e indique horas de uso e tarifa.")
+    st.write("**3.** Compare custos e exporte o resultado.")
     reading: LabelReading | None = st.session_state.get("label_reading")
     if reading:
-        st.markdown("**Evidência encontrada:**")
-        st.code(reading.evidence or "Nenhum trecho confiável detectado")
-        st.caption(f"Confiança informada pela IA: {reading.confidence}. {reading.notes}")
+        with st.container(border=True):
+            st.markdown("**Trecho encontrado na etiqueta**")
+            st.code(reading.evidence or "Nenhum trecho confiável detectado")
+            st.caption(f"Confiança informada pela IA: {reading.confidence}. {reading.notes}")
+    with st.expander("Como a IA lê a etiqueta e quais são os limites?"):
+        st.write("A Gemma 4 procura potência explícita em W ou kW e cita o trecho lido. "
+                 "Ela pode errar: confira a foto e confirme o valor. Tarifa, tempo de uso "
+                 "e consumo real não são inferidos pela IA.")
 
 st.divider()
 st.markdown("### 2. Confirme os dados e simule")
@@ -259,7 +266,10 @@ if st.session_state["label_reading"] is not None and watts > 0 and not st.sessio
     st.warning("Antes de calcular, confira a potência indicada na etiqueta e confirme o valor.")
     if st.button("✓ Confirmar potência e calcular", type="primary"):
         st.session_state["power_confirmed"] = True
-        st.session_state["source_kind"] = f"Gemma 4 ({model}) — confirmado pelo usuário"
+        if "ajustada manualmente" in st.session_state["source_kind"]:
+            st.session_state["source_kind"] = "ajustada manualmente após leitura com Gemma 4 — confirmada pelo usuário"
+        else:
+            st.session_state["source_kind"] = f"Gemma 4 ({model}) — confirmado pelo usuário"
         st.rerun()
 
 if watts <= 0:
