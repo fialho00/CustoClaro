@@ -1,367 +1,252 @@
-"""CustoClaro — visual, explainable household energy cost estimator."""
-
+"""CustoClaro: photo-first, private-session energy estimate."""
 from __future__ import annotations
 
 import csv
 import hashlib
 import io
 import os
+import re
+from decimal import Decimal
 from pathlib import Path
 
-import pandas as pd
 import streamlit as st
-from dotenv import load_dotenv
 from PIL import Image, ImageOps, UnidentifiedImageError
 
 from core import brl, calculate_energy, pt_number, safe_spreadsheet_text
-from vision import DEFAULT_MODEL, MAX_UPLOAD_BYTES, LabelReading, configured_api_key, read_label
+from vision import MAX_UPLOAD_BYTES, DEFAULT_MODEL, LabelReading, read_label, configured_api_key
 
-load_dotenv(Path(__file__).resolve().parent / ".env")
-
-st.set_page_config(
-    page_title="CustoClaro | Entenda sua conta de luz",
-    page_icon="⚡",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
-
-st.markdown(
-    """
-    <style>
-      .stApp { background: #f7f8fb; color: #182336; }
-      .block-container { padding-top: 2rem; padding-bottom: 3rem; max-width: 1230px; }
-      h1, h2, h3 { color: #142437; letter-spacing: -.025em; }
-      h1 { font-size: 2.6rem !important; margin-bottom: .2rem; }
-      [data-testid="stMetric"] {
-        background: white; border: 1px solid #e5eaf0; border-radius: 17px;
-        padding: 1.25rem; box-shadow: 0 8px 30px rgba(28,47,75,.04);
-      }
-      [data-testid="stSidebar"] { background: #edf4f2; }
-      div.stButton > button[kind="primary"] {
-        background: #087d66; color: white; border-radius: 10px; border: 0;
-      }
-      div.stButton > button[kind="primary"]:hover { background: #006957; color: white; }
-      .eyebrow { color: #087d66; font-weight: 800; font-size: .84rem;
-        letter-spacing: .15em; text-transform: uppercase; }
-      .subline { color: #56667b; font-size: 1.05rem; max-width: 55rem; }
-      .formula { background: #eaf5f1; border: 1px solid #c8e9dc;
-        border-radius: 12px; padding: 1.1rem 1.25rem; color: #185745; }
-      .disclaimer { background: #fff8e9; border-radius: 12px;
-        border: 1px solid #f4deb0; padding: .85rem 1rem; color: #66502b; }
-      .hero { background: linear-gradient(120deg, #123e39, #087d66); color: white;
-        border-radius: 20px; padding: 1.65rem 2rem; margin-bottom: 1.5rem; }
-      .hero h1 { color: white !important; margin: .25rem 0 .4rem; }
-      .hero p { color: #e4f8f1; margin: 0; max-width: 48rem; }
-      .hero .eyebrow { color: #b9f1db; }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+st.set_page_config(page_title='CustoClaro', page_icon='⚡', layout='centered', initial_sidebar_state='collapsed')
 
 
 def prepare_image(uploaded: object) -> tuple[bytes, str]:
-    """Validate and normalize photo bytes before sending to the remote model."""
     raw = uploaded.getvalue()  # type: ignore[attr-defined]
     if not raw or len(raw) > MAX_UPLOAD_BYTES:
-        raise ValueError("Imagem vazia ou maior que 8 MB.")
-
+        raise ValueError('A foto precisa ter até 8 MB.')
     try:
         with Image.open(io.BytesIO(raw)) as original:
             if original.width * original.height > 20_000_000:
-                raise ValueError("A imagem tem resolução excessiva.")
-            if original.format not in {"JPEG", "PNG", "WEBP"}:
-                raise ValueError("Arquivo inválido. Escolha JPEG, PNG ou WebP.")
-            image = ImageOps.exif_transpose(original).convert("RGB")
+                raise ValueError('Reduza a resolução da foto.')
+            if original.format not in {'JPEG', 'PNG', 'WEBP'}:
+                raise ValueError('Envie JPEG, PNG ou WebP.')
+            image = ImageOps.exif_transpose(original).convert('RGB')
             image.thumbnail((1600, 1600), Image.Resampling.LANCZOS)
-            buffer = io.BytesIO()
-            image.save(buffer, format="JPEG", quality=88, optimize=True)
+            output = io.BytesIO()
+            image.save(output, format='JPEG', quality=88, optimize=True)
+            return output.getvalue(), 'image/jpeg'
     except (UnidentifiedImageError, Image.DecompressionBombError, OSError, ValueError) as exc:
-        raise ValueError(f"Não foi possível ler essa imagem: {exc}") from exc
-    return buffer.getvalue(), "image/jpeg"
+        raise ValueError(f'Não consegui abrir a foto: {exc}') from exc
 
 
-def csv_report(name: str, estimate: object, alternative: object) -> bytes:
-    buffer = io.StringIO()
-    writer = csv.writer(buffer, delimiter=";")
-    writer.writerow(["Projeto", "CustoClaro"])
-    writer.writerow(["Aparelho", safe_spreadsheet_text(name)])
-    writer.writerow(["Potência (W)", pt_number(estimate.watts)])  # type: ignore[attr-defined]
-    writer.writerow(["Unidades", estimate.units])  # type: ignore[attr-defined]
-    writer.writerow(["Dias por mês", estimate.days_per_month])  # type: ignore[attr-defined]
-    writer.writerow(["Tarifa informada (R$/kWh)", pt_number(estimate.tariff_per_kwh)])  # type: ignore[attr-defined]
-    writer.writerow([])
-    writer.writerow(["Cenário", "Horas/dia", "kWh/mês", "R$/mês"])
-    for label, item in (("Atual", estimate), ("Alternativo", alternative)):
-        writer.writerow(
-            [label, pt_number(item.hours_per_day), pt_number(item.monthly_kwh), pt_number(item.monthly_brl)]
-        )
-    writer.writerow([])
-    writer.writerow(["Nota", "Estimativas com potência constante; não substituem medição."])
-    return ("\ufeff" + buffer.getvalue()).encode("utf-8")
+def csv_report(name: str, estimate: object, source: str = 'manual') -> bytes:
+    """One row, stable headers, Excel-friendly UTF-8 and locale delimiter."""
+    output = io.StringIO()
+    output.write('sep=;\r\n')
+    writer = csv.writer(output, delimiter=';', lineterminator='\r\n')
+    writer.writerow(['Aparelho', 'Origem da potência', 'Potência (W)', 'Minutos por dia',
+                     'Dias por mês', 'Tarifa (R$/kWh)', 'Consumo (kWh/mês)',
+                     'Custo (R$/mês)', 'Custo (R$/ano)'])
+    writer.writerow([safe_spreadsheet_text(name), safe_spreadsheet_text(source),
+                     pt_number(estimate.watts), pt_number(estimate.hours_per_day * 60, 0),
+                     estimate.days_per_month, pt_number(estimate.tariff_per_kwh),
+                     pt_number(estimate.monthly_kwh), pt_number(estimate.monthly_brl),
+                     pt_number(estimate.annual_brl)])
+    return ('\ufeff' + output.getvalue()).encode('utf-8')
 
 
-for key, default in {
-    "device_name": "",
-    "watts_field": 0.0,
-    "hours_field": 2.0,
-    "days_field": 30,
-    "units_field": 1,
-    "tariff_field": 0.90,
-    "label_reading": None,
-    "power_confirmed": False,
-    "source_kind": "manual",
-    "photo_fingerprint": None,
-}.items():
+def contextual_reply(question: str, estimate: object | None, name: str) -> str:
+    """Constrained assistant: interprets usage questions, never invents rates or wattage."""
+    if estimate is None:
+        return 'Primeiro envie uma foto com a potência em W ou informe os watts manualmente.'
+    q = question.casefold()
+    if any(word in q for word in ('tarifa', 'preço do kwh', 'preco do kwh')):
+        return f'Estou usando R$ {pt_number(estimate.tariff_per_kwh)}/kWh como exemplo. Abra “Ajustes” para colocar a tarifa da sua conta.'
+    match = re.search(r'(\d+(?:[.,]\d+)?)\s*(minutos?|min|horas?|h)\b', q)
+    if match:
+        amount = Decimal(match.group(1).replace(',', '.'))
+        hours = amount / 60 if match.group(2).startswith('min') else amount
+        if hours < 0 or hours > 24:
+            return 'Use um tempo entre 0 e 24 horas por dia.'
+        alt = calculate_energy(watts=estimate.watts, hours_per_day=hours,
+                               days_per_month=estimate.days_per_month,
+                               tariff_per_kwh=estimate.tariff_per_kwh, units=1)
+        difference = estimate.monthly_brl - alt.monthly_brl
+        comparison = (f' Economia de {brl(difference)}/mês em relação ao tempo atual.'
+                      if difference > 0 else
+                      f' Acréscimo de {brl(-difference)}/mês em relação ao tempo atual.'
+                      if difference < 0 else '')
+        return (f'Com {pt_number(hours * 60, 0)} minutos por dia, {name} consumiria '
+                f'{pt_number(alt.monthly_kwh)} kWh/mês e custaria cerca de {brl(alt.monthly_brl)}/mês '
+                f'({estimate.days_per_month} dias).{comparison}')
+    if any(word in q for word in ('ano', 'anual', '12 meses')):
+        return f'Em 12 meses iguais: {brl(estimate.annual_brl)}. A estimativa não prevê mudanças na tarifa ou no uso.'
+    if any(word in q for word in ('como', 'conta', 'calcula', 'fórmula', 'formula')):
+        return (f'{pt_number(estimate.watts)} W ÷ 1.000 × {pt_number(estimate.hours_per_day * 60, 0)} min ÷ 60 '
+                f'× {estimate.days_per_month} dias = {pt_number(estimate.monthly_kwh)} kWh/mês. '
+                f'Multiplicando pela tarifa: {brl(estimate.monthly_brl)}/mês.')
+    return (f'{name}: {pt_number(estimate.monthly_kwh)} kWh e {brl(estimate.monthly_brl)} por mês. '
+            'Pergunte, por exemplo: “e se eu usar 10 minutos?”, “qual o custo anual?” ou “como calcula?”.')
+
+
+for key, default in {'dark': False, 'watts': 0.0, 'minutes': 10, 'days': 30,
+                     'tariff': 0.90, 'name': 'Aparelho', 'reading': None,
+                     'fingerprint': None, 'confirmed': False, 'source': 'manual',
+                     'chat': []}.items():
     st.session_state.setdefault(key, default)
 
 
-def mark_manual_power_change() -> None:
-    if st.session_state.get("label_reading") is not None:
-        st.session_state["power_confirmed"] = False
-        st.session_state["source_kind"] = "ajustada manualmente após leitura com Gemma 4 — pendente de confirmação"
-    elif st.session_state.get("source_kind") == "exemplo manual — sem IA":
-        st.session_state["source_kind"] = "manual"
+def power_changed() -> None:
+    if st.session_state.reading is not None:
+        st.session_state.confirmed = False
+        st.session_state.source = 'foto + ajuste manual'
 
-st.markdown(
-    '<div class="hero"><div class="eyebrow">⚡ Energia em números claros</div>'
-    '<h1>CustoClaro</h1><p>Fotografe a etiqueta, confirme a potência e descubra '
-    'quanto o aparelho pode custar por mês. Sem foto? Preencha manualmente.</p></div>',
-    unsafe_allow_html=True,
-)
+# Deliberately do not persist keys, photos, conversation or calculations to disk.
+background = '#101b20' if st.session_state.dark else '#f7faf9'
+foreground = '#ecf6f4' if st.session_state.dark else '#172d2a'
+card = '#1d3033' if st.session_state.dark else '#ffffff'
+st.markdown(f'''<style>
+.stApp {{background:{background};color:{foreground}}}
+.block-container {{max-width:760px;padding-top:1.2rem;padding-bottom:3rem}}
+header[data-testid="stHeader"], #MainMenu, footer {{visibility:hidden}}
+.hero {{background:linear-gradient(135deg,#075e52,#15967c);color:white;padding:1.5rem;border-radius:20px;margin-bottom:1.1rem}}
+.hero h1 {{color:white;margin:0;font-size:2.1rem}}
+.hero p {{margin:.35rem 0 0;color:#e3fff5}}
+[data-testid="stMetric"] {{background:{card};border:1px solid #5f8e8555;border-radius:14px;padding:1rem}}
+@media(max-width:600px) {{.block-container {{padding:1rem .8rem 4rem}} .hero {{padding:1.15rem}} .hero h1 {{font-size:1.7rem}}}}
+{'''[data-testid="stAppViewContainer"] input, [data-testid="stAppViewContainer"] textarea {
+background:#22383b !important;color:#f2faf8 !important;}
+[data-testid="stAppViewContainer"] label, [data-testid="stAppViewContainer"] p {
+color:#e5f3f0 !important;}''' if st.session_state.dark else ''}
+</style>''', unsafe_allow_html=True)
 
-with st.sidebar:
-    st.header("Sobre este projeto")
-    st.write("**IA:** Gemma 4 (modelo open-weight) pela Gemini API.")
-    model = DEFAULT_MODEL
-    st.code(model)
-    has_key = bool(configured_api_key())
-    if has_key:
-        st.success("Chave encontrada. Teste a conexão usando uma foto real.")
-    else:
-        st.warning("Sem chave de API: cálculo manual disponível; leitura por IA desativada.")
-    st.caption("A imagem é enviada à API do Google apenas quando você clica em **Analisar etiqueta**.")
-    st.divider()
-    st.subheader("Exemplo rápido")
-    if st.button("Carregar ventilador de exemplo", use_container_width=True):
-        st.session_state.update(
-            device_name="Ventilador (exemplo fictício)",
-            watts_field=60.0,
-            hours_field=8.0,
-            days_field=30,
-            tariff_field=0.90,
-            units_field=1,
-            label_reading=None,
-            power_confirmed=True,
-            source_kind="exemplo manual — sem IA",
-        )
+head, theme = st.columns([5, 1])
+with theme:
+    if st.button('☾' if not st.session_state.dark else '☀', help='Alternar modo escuro e claro'):
+        st.session_state.dark = not st.session_state.dark
         st.rerun()
-    st.caption("Dados de demonstração fictícios, não extraídos de uma imagem.")
+st.markdown('<div class="hero"><h1>⚡ CustoClaro</h1><p>Foto da etiqueta → custo da energia em poucos passos.</p></div>', unsafe_allow_html=True)
 
-st.markdown("### 1. Fotografe a etiqueta")
-left, right = st.columns([1.03, 1], gap="large")
-
-with left:
-    mode = st.radio(
-        "Origem da imagem", ["Arquivo", "Câmera"], horizontal=True, label_visibility="collapsed"
-    )
-    if mode == "Arquivo":
-        uploaded = st.file_uploader(
-            "Imagem da etiqueta (JPEG, PNG ou WebP)", type=["jpg", "jpeg", "png", "webp"]
-        )
-    else:
-        uploaded = st.camera_input("Fotografe a etiqueta de potência")
-    initial_path = os.getenv("CUSTOCLARO_INITIAL_IMAGE")
-    if uploaded is None and mode == "Arquivo" and initial_path:
-        if st.checkbox("Usar imagem selecionada no iniciador", value=True):
-            try:
-                selected_path = Path(initial_path)
-                if selected_path.stat().st_size > MAX_UPLOAD_BYTES:
-                    raise ValueError("Imagem maior que 8 MB.")
-                uploaded = io.BytesIO(selected_path.read_bytes())
-            except (OSError, ValueError):
-                st.error("Nao foi possivel abrir a imagem selecionada. Escolha outro arquivo acima.")
-    image_data: tuple[bytes, str] | None = None
-    if uploaded is not None:
-        try:
-            image_data = prepare_image(uploaded)
-            st.image(image_data[0], caption="Prévia da imagem selecionada", use_container_width=True)
-        except ValueError as exc:
-            st.error(str(exc))
-
-    fingerprint = hashlib.sha256(image_data[0]).hexdigest() if image_data else None
-    if fingerprint != st.session_state["photo_fingerprint"]:
-        if st.session_state["label_reading"] is not None:
-            # Do not display the old picture's wattage or evidence for a new one.
-            st.session_state["watts_field"] = 0.0
-            st.session_state["device_name"] = ""
-        st.session_state["label_reading"] = None
-        st.session_state["power_confirmed"] = False
-        st.session_state["source_kind"] = "manual"
-        st.session_state["photo_fingerprint"] = fingerprint
-
-    analyze = st.button(
-        "🔎 Analisar etiqueta com Gemma 4",
-        type="primary",
-        disabled=image_data is None or not has_key,
-        use_container_width=True,
-    )
-    if analyze and image_data:
-        try:
-            with st.spinner("A Gemma 4 está procurando a potência nominal na etiqueta..."):
-                reading = read_label(*image_data, model=model)
-            st.session_state["label_reading"] = reading
-            st.session_state["power_confirmed"] = False
-            st.session_state["source_kind"] = f"Gemma 4 ({model}) — pendente de revisão humana"
-            st.session_state["device_name"] = reading.appliance
-            st.session_state["watts_field"] = float(reading.power_watts or 0)
-            if reading.power_watts is None:
-                st.warning("A potência não foi identificada com segurança. Preencha manualmente.")
-            else:
-                st.success("Leitura concluída. Verifique a potência antes de calcular.")
-        except ValueError as exc:
-            st.error(str(exc))
-        except Exception as exc:
-            code = getattr(exc, 'code', None) or getattr(exc, 'status_code', None)
-            if code in (400, 401, 403):
-                st.error('A chave foi rejeitada pela API. Confira se é uma Gemini API Key válida e se tem acesso ao modelo.')
-            elif code == 429:
-                st.error('Limite de chamadas atingido. Aguarde e tente novamente.')
-            elif code in (500, 502, 503, 504):
-                st.error('O serviço do modelo está temporariamente indisponível. Tente novamente mais tarde.')
-            else:
-                st.error('Não foi possível analisar a imagem. Verifique a conexão e tente novamente.')
-            st.caption(f"Falha: {type(exc).__name__}" + (f" (HTTP {code})" if code else ""))
-
-with right:
-    st.markdown("#### Sua estimativa em três passos")
-    st.write("**1.** Envie a etiqueta ou informe a potência em W.")
-    st.write("**2.** Confira a leitura e indique horas de uso e tarifa.")
-    st.write("**3.** Compare custos e exporte o resultado.")
-    reading: LabelReading | None = st.session_state.get("label_reading")
-    if reading:
-        with st.container(border=True):
-            st.markdown("**Trecho encontrado na etiqueta**")
-            st.code(reading.evidence or "Nenhum trecho confiável detectado")
-            st.caption(f"Confiança informada pela IA: {reading.confidence}. {reading.notes}")
-    with st.expander("Como a IA lê a etiqueta e quais são os limites?"):
-        st.write("A Gemma 4 procura potência explícita em W ou kW e cita o trecho lido. "
-                 "Ela pode errar: confira a foto e confirme o valor. Tarifa, tempo de uso "
-                 "e consumo real não são inferidos pela IA.")
-
-st.divider()
-st.markdown("### 2. Confirme os dados e simule")
-st.caption(f"Origem da potência: {st.session_state['source_kind']}. Tarifa inicial ilustrativa: R$ 0,90/kWh.")
-col1, col2, col3 = st.columns([1.8, 1.05, 1], gap="medium")
-with col1:
-    name = st.text_input("Aparelho", key="device_name", placeholder="Ex.: ventilador")
-with col2:
-    watts = st.number_input(
-        "Potência nominal (W)", min_value=0.0, max_value=1000000.0,
-        step=10.0, key="watts_field", on_change=mark_manual_power_change,
-    )
-with col3:
-    units = st.number_input("Quantidade de aparelhos", min_value=1, max_value=1000, step=1, key="units_field")
-
-col4, col5, col6 = st.columns(3, gap="medium")
-with col4:
-    hours = st.number_input("Horas de uso por dia", min_value=0.0, max_value=24.0, step=0.5, key="hours_field")
-with col5:
-    days = st.number_input("Dias de uso por mês", min_value=1, max_value=31, step=1, key="days_field")
-with col6:
-    tariff = st.number_input("Tarifa estimada (R$/kWh)", min_value=0.0, max_value=1000.0, step=0.05, format="%.2f", key="tariff_field")
-
-if st.session_state["label_reading"] is not None and watts > 0 and not st.session_state["power_confirmed"]:
-    st.warning("Antes de calcular, confira a potência indicada na etiqueta e confirme o valor.")
-    if st.button("✓ Confirmar potência e calcular", type="primary"):
-        st.session_state["power_confirmed"] = True
-        if "ajustada manualmente" in st.session_state["source_kind"]:
-            st.session_state["source_kind"] = "ajustada manualmente após leitura com Gemma 4 — confirmada pelo usuário"
-        else:
-            st.session_state["source_kind"] = f"Gemma 4 ({model}) — confirmado pelo usuário"
-        st.rerun()
-
-if watts <= 0:
-    st.info("Informe uma potência maior que zero para ver os resultados. Você pode carregar o exemplo no menu lateral.")
-elif st.session_state["label_reading"] is not None and not st.session_state["power_confirmed"]:
-    st.info("A estimativa aparecerá após a confirmação humana do valor sugerido pela IA.")
+st.subheader('1. Tire uma foto da etiqueta')
+st.caption('Procure a potência indicada em W ou kW. Só o código de barras não revela o consumo.')
+source = st.radio('Foto', ['Enviar foto', 'Usar câmera'], horizontal=True, label_visibility='collapsed')
+if source == 'Usar câmera':
+    uploaded = st.camera_input('Fotografe a etiqueta')
 else:
+    uploaded = st.file_uploader('Escolha a foto', type=['jpg', 'jpeg', 'png', 'webp'])
+initial_path = os.getenv('CUSTOCLARO_INITIAL_IMAGE')
+if uploaded is None and source == 'Enviar foto' and initial_path:
+    if st.checkbox('Usar foto escolhida no iniciador', value=True):
+        try:
+            file = Path(initial_path)
+            if file.stat().st_size > MAX_UPLOAD_BYTES:
+                raise ValueError('Foto maior que 8 MB.')
+            uploaded = io.BytesIO(file.read_bytes())
+        except (OSError, ValueError):
+            st.error('Não foi possível abrir a foto. Escolha outra acima.')
+image_data = None
+if uploaded is not None:
     try:
-        estimate = calculate_energy(
-            watts=watts,
-            hours_per_day=hours,
-            days_per_month=days,
-            tariff_per_kwh=tariff,
-            units=units,
-        )
+        image_data = prepare_image(uploaded)
+        st.image(image_data[0], caption='Foto selecionada', use_container_width=True)
     except ValueError as exc:
-        st.error(f"Dados inválidos: {exc}")
-        st.stop()
+        st.error(str(exc))
+fingerprint = hashlib.sha256(image_data[0]).hexdigest() if image_data else None
+if fingerprint != st.session_state.fingerprint:
+    st.session_state.fingerprint = fingerprint
+    st.session_state.reading = None
+    st.session_state.confirmed = False
+    st.session_state.source = 'manual'
+    st.session_state.watts = 0.0
+    st.session_state.name = 'Aparelho'
+    st.session_state.chat = []
 
-    st.divider()
-    st.markdown("### 3. Resultado transparente")
-    a, b, c = st.columns(3, gap="medium")
-    a.metric("Consumo mensal", f"{pt_number(estimate.monthly_kwh)} kWh")
-    b.metric("Custo mensal estimado", brl(estimate.monthly_brl))
-    c.metric("Custo em 12 meses iguais", brl(estimate.annual_brl))
+api_key = configured_api_key()
+with st.expander('Chave da IA (opcional)', expanded=bool(image_data and not api_key)):
+    user_key = st.text_input('Gemini API Key', type='password', help='Fica apenas nesta sessão e não aparece no CSV.')
+    if user_key:
+        from launcher import normalize_key
+        try:
+            api_key = normalize_key(user_key)
+            st.success('Chave recebida. A conexão será testada ao analisar a foto.')
+        except ValueError as exc:
+            st.error(str(exc))
+    st.caption('A foto será enviada ao Google apenas quando você clicar em “Ler etiqueta”.')
 
-    st.markdown(
-        '<div class="formula"><strong>Como calculamos:</strong> '
-        'consumo (kWh/mês) = potência (W) ÷ 1.000 × horas/dia × dias/mês × aparelhos.<br>'
-        'Custo (R$/mês) = consumo (kWh/mês) × tarifa informada (R$/kWh).</div>',
-        unsafe_allow_html=True,
-    )
-    st.caption(
-        f"Aplicando seus números: {pt_number(estimate.watts)} W ÷ 1.000 × "
-        f"{pt_number(estimate.hours_per_day)} h × {days} dias × {units} = "
-        f"{pt_number(estimate.monthly_kwh)} kWh/mês."
-    )
+if st.button('Ler etiqueta com IA', type='primary', disabled=image_data is None or not api_key, use_container_width=True):
+    try:
+        with st.spinner('Lendo a potência...'):
+            result = read_label(*image_data, api_key=api_key)
+        st.session_state.reading = result
+        st.session_state.watts = float(result.power_watts or 0)
+        st.session_state.name = result.appliance
+        st.session_state.confirmed = False
+        st.session_state.source = 'foto + IA'
+        if result.power_watts is None:
+            st.warning('Não encontrei uma potência confiável. Confira a foto ou digite os watts abaixo.')
+        else:
+            st.success(f'Potência encontrada: {pt_number(result.power_watts, 0)} W. Confira antes de calcular.')
+    except Exception as exc:
+        code = getattr(exc, 'code', None) or getattr(exc, 'status_code', None)
+        if code in (400, 401, 403):
+            st.error('Chave rejeitada ou modelo indisponível para esta chave. Confira no Google AI Studio.')
+        elif code == 429:
+            st.error('Limite de uso da API atingido. Tente mais tarde.')
+        elif code in (500, 502, 503, 504):
+            st.error('A API está temporariamente indisponível. Tente novamente.')
+        else:
+            st.error('Não consegui ler esta foto. Confira a conexão, a chave e tente outra imagem.')
 
-    st.markdown("### 4. E se mudarmos o tempo de uso?")
-    alternative_hours = st.slider(
-        "Horas diárias no cenário alternativo", min_value=0.0, max_value=24.0,
-        value=min(24.0, round(hours * 0.75 * 2) / 2), step=0.5,
-    )
-    alternative = calculate_energy(
-        watts=watts,
-        hours_per_day=alternative_hours,
-        days_per_month=days,
-        tariff_per_kwh=tariff,
-        units=units,
-    )
-    saving = estimate.monthly_brl - alternative.monthly_brl
-    d, e = st.columns([1.2, 1], gap="large")
-    with d:
-        graph = pd.DataFrame(
-            {
-                "Cenário": ["Uso informado", "Uso alternativo"],
-                "Custo estimado (R$/mês)": [
-                    float(estimate.monthly_brl), float(alternative.monthly_brl)
-                ],
-            }
-        ).set_index("Cenário")
-        st.bar_chart(graph, color="#087d66", horizontal=True)
-    with e:
-        st.metric("Diferença mensal", brl(saving))
-        st.write(
-            "Valor positivo representa economia no cenário alternativo. "
-            "Valor negativo representa gasto adicional."
-        )
-        st.download_button(
-            "⬇️ Exportar simulação (CSV)",
-            data=csv_report(name or "Aparelho sem nome", estimate, alternative),
-            file_name="custoclaro_simulacao.csv",
-            mime="text/csv",
-            use_container_width=True,
-        )
+if st.session_state.reading:
+    reading: LabelReading = st.session_state.reading
+    if reading.evidence:
+        st.info(f'Na etiqueta: “{reading.evidence}”')
+    if reading.notes:
+        st.caption(reading.notes)
 
-    st.markdown(
-        '<div class="disclaimer"><strong>Atenção:</strong> esta é uma simulação baseada na '
-        'potência informada e em uso constante. Aparelhos com termostato, ciclos, modos de '
-        'potência ou consumo variável podem gastar mais ou menos. A tarifa é ilustrativa e '
-        'não inclui automaticamente impostos, bandeiras e outras cobranças.</div>',
-        unsafe_allow_html=True,
-    )
+st.subheader('2. Confira e calcule')
+st.number_input('Potência (W)', min_value=0.0, max_value=1_000_000.0, step=10.0,
+                key='watts', on_change=power_changed)
+st.number_input('Minutos de uso por dia', min_value=0, max_value=1440, step=5, key='minutes')
+with st.expander('Ajustes: tarifa e dias', expanded=False):
+    st.number_input('Dias de uso no mês', min_value=1, max_value=31, step=1, key='days')
+    st.number_input('Tarifa (R$/kWh)', min_value=0.0, max_value=1000.0,
+                    step=0.05, format='%.2f', key='tariff')
+    st.caption('R$ 0,90/kWh é só um exemplo; use o valor da sua conta para uma estimativa melhor.')
 
-st.divider()
-st.caption("CustoClaro • Projeto open-source • Cálculos determinísticos + leitura assistida por Gemma 4")
+if st.session_state.watts > 0 and st.session_state.reading and not st.session_state.confirmed:
+    if st.button('Confirmar potência', type='primary', use_container_width=True):
+        st.session_state.confirmed = True
+        st.rerun()
 
+estimate = None
+if st.session_state.watts > 0 and (not st.session_state.reading or st.session_state.confirmed):
+    estimate = calculate_energy(watts=st.session_state.watts,
+                                hours_per_day=Decimal(st.session_state.minutes) / 60,
+                                days_per_month=st.session_state.days,
+                                tariff_per_kwh=st.session_state.tariff)
+    st.metric('Custo por mês', brl(estimate.monthly_brl))
+    a, b = st.columns(2)
+    a.metric('Energia por mês', f'{pt_number(estimate.monthly_kwh)} kWh')
+    b.metric('Custo em 12 meses', brl(estimate.annual_brl))
+    st.write(f'Cada uso de {st.session_state.minutes} minutos custa cerca de '
+             f'**{brl(estimate.monthly_brl / st.session_state.days)}**.')
+    st.caption(f'{pt_number(estimate.watts, 0)} W × {st.session_state.minutes} min/dia × '
+               f'{st.session_state.days} dias × R$ {pt_number(estimate.tariff_per_kwh)}/kWh. '
+               'Estimativa, não medição.')
+    st.download_button('Baixar resultado (CSV)',
+                       data=csv_report(st.session_state.name, estimate, st.session_state.source),
+                       file_name='custoclaro_resultado.csv', mime='text/csv', use_container_width=True)
+else:
+    st.info('Envie uma foto e confirme a potência, ou digite os watts para simular sem IA.')
+
+st.subheader('Pergunte sobre o resultado')
+st.caption('Ex.: “E se eu usar 10 minutos?”, “Quanto no ano?”')
+for role, message in st.session_state.chat[-6:]:
+    with st.chat_message(role):
+        st.write(message)
+if question := st.chat_input('Pergunte sobre o custo deste aparelho'):
+    answer = contextual_reply(question, estimate, st.session_state.name)
+    st.session_state.chat = (st.session_state.chat + [('user', question), ('assistant', answer)])[-6:]
+    with st.chat_message('user'):
+        st.write(question)
+    with st.chat_message('assistant'):
+        st.write(answer)
