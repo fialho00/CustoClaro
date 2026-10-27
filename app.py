@@ -55,6 +55,31 @@ def csv_report(name: str, estimate: object, source: str = 'manual') -> bytes:
     return ('\ufeff' + output.getvalue()).encode('utf-8')
 
 
+def household_report(items: list[dict], tariff: float) -> bytes:
+    """A row per appliance plus a total, without photos or credentials."""
+    output = io.StringIO()
+    output.write('sep=;\r\n')
+    writer = csv.writer(output, delimiter=';', lineterminator='\r\n')
+    writer.writerow(['Aparelho', 'Origem da potência', 'Potência (W)', 'Minutos por dia',
+                     'Dias por mês', 'Unidades', 'Tarifa (R$/kWh)',
+                     'Consumo (kWh/mês)', 'Custo (R$/mês)', 'Custo (R$/ano)'])
+    total_kwh = total_month = total_year = Decimal(0)
+    for item in items:
+        result = calculate_energy(watts=item['watts'], hours_per_day=Decimal(item['minutes']) / 60,
+                                  days_per_month=item['days'], tariff_per_kwh=tariff,
+                                  units=item['units'])
+        writer.writerow([safe_spreadsheet_text(item['name']), safe_spreadsheet_text(item['source']),
+                         pt_number(result.watts), item['minutes'], item['days'], item['units'],
+                         pt_number(tariff, 5), pt_number(result.monthly_kwh),
+                         pt_number(result.monthly_brl), pt_number(result.annual_brl)])
+        total_kwh += result.monthly_kwh
+        total_month += result.monthly_brl
+        total_year += result.annual_brl
+    writer.writerow(['TOTAL', '', '', '', '', '', '', pt_number(total_kwh),
+                     pt_number(total_month), pt_number(total_year)])
+    return ('\ufeff' + output.getvalue()).encode('utf-8')
+
+
 def contextual_reply(question: str, estimate: object | None, name: str) -> str:
     """Constrained assistant: interprets usage questions, never invents rates or wattage."""
     if estimate is None:
@@ -89,11 +114,26 @@ def contextual_reply(question: str, estimate: object | None, name: str) -> str:
             'Pergunte, por exemplo: “e se eu usar 10 minutos?”, “qual o custo anual?” ou “como calcula?”.')
 
 
-for key, default in {'dark': False, 'watts': 0.0, 'minutes': 10, 'days': 30,
+def household_reply(question: str, rows: list[tuple]) -> str:
+    """Answer common home questions using only calculated numbers."""
+    if not rows:
+        return 'Adicione um aparelho para analisar sua casa.'
+    total = sum((result.monthly_brl for _, result in rows), Decimal(0))
+    total_kwh = sum((result.monthly_kwh for _, result in rows), Decimal(0))
+    top_item, top_result = max(rows, key=lambda pair: pair[1].monthly_kwh)
+    if any(word in question.casefold() for word in ('mais', 'maior', 'gasta', 'consome', 'prioridade')):
+        return (f"Entre os itens adicionados, {top_item['name']} tem o maior consumo estimado: "
+                f'{pt_number(top_result.monthly_kwh)} kWh/mês, cerca de {brl(top_result.monthly_brl)}/mês.')
+    return (f'Os {len(rows)} aparelhos somam cerca de {pt_number(total_kwh)} kWh/mês '
+            f'e {brl(total)}/mês. Pergunte “qual consome mais?” para ver por onde começar.')
+
+
+for key, default in {'dark': False, 'watts': 0.0, 'minutes': 10, 'days': 30, 'units': 1,
                      'tariff': 0.90, 'name': 'Aparelho', 'reading': None,
                      'fingerprint': None, 'confirmed': False, 'source': 'manual',
                      'chat': [], 'location_label': None, 'distributors': [],
-                     'tariff_source': 'exemplo'}.items():
+                     'tariff_source': 'exemplo', 'house': [], 'house_chat': [], 'photo_version': 0,
+                     'initial_consumed': False}.items():
     st.session_state.setdefault(key, default)
 
 
@@ -105,46 +145,93 @@ def power_changed() -> None:
 
 def tariff_changed() -> None:
     st.session_state.tariff_source = 'informada por você'
+    st.session_state.house_chat = []
 
 
 def distributor_changed() -> None:
     st.session_state.distributors = []
 
+
+def add_to_house() -> None:
+    """Widget callbacks run before rendering, so the next photo can start cleanly."""
+    if st.session_state.watts <= 0 or (st.session_state.reading and not st.session_state.confirmed):
+        return
+    st.session_state.house = [*st.session_state.house, {
+        'name': st.session_state.name.strip() or 'Aparelho',
+        'watts': st.session_state.watts, 'minutes': st.session_state.minutes,
+        'days': st.session_state.days, 'units': st.session_state.units,
+        'source': st.session_state.source,
+    }]
+    st.session_state.house_chat = []
+    st.session_state.watts = 0.0
+    st.session_state.name = 'Aparelho'
+    st.session_state.units = 1
+    st.session_state.reading = None
+    st.session_state.confirmed = False
+    st.session_state.fingerprint = None
+    st.session_state.source = 'manual'
+    st.session_state.photo_version += 1
+    st.session_state.initial_consumed = True
+    st.session_state.chat = []
+
 # Deliberately do not persist keys, photos, conversation or calculations to disk.
-background = '#101b20' if st.session_state.dark else '#f7faf9'
-foreground = '#ecf6f4' if st.session_state.dark else '#172d2a'
-card = '#1d3033' if st.session_state.dark else '#ffffff'
+background = '#0b171b' if st.session_state.dark else '#f6f8f5'
+foreground = '#edf8f4' if st.session_state.dark else '#132e2c'
+card = '#182d30' if st.session_state.dark else '#ffffff'
 st.markdown(f'''<style>
-.stApp {{background:{background};color:{foreground}}}
-.block-container {{max-width:700px;padding-top:.75rem;padding-bottom:3rem}}
+.stApp {{background:radial-gradient(circle at 80% 0%,#52c9a018,transparent 35%),{background};color:{foreground}}}
+.block-container {{max-width:760px;padding-top:1rem;padding-bottom:4rem}}
 header[data-testid="stHeader"], #MainMenu, footer {{visibility:hidden}}
-.hero {{background:linear-gradient(135deg,#075e52,#15967c);color:white;padding:1.25rem 1.5rem;border-radius:18px;margin-bottom:.65rem}}
-.hero h1 {{color:white;margin:0;font-size:2.1rem}}
-.hero p {{margin:.35rem 0 0;color:#e3fff5}}
-[data-testid="stMetric"] {{background:{card};border:1px solid #5f8e8555;border-radius:14px;padding:1rem}}
-div.stButton > button, div.stDownloadButton > button {{min-height:2.85rem;border-radius:12px}}
-@media(max-width:600px) {{.block-container {{padding:.5rem .85rem 4rem}} .hero {{padding:1rem 1.15rem}} .hero h1 {{font-size:1.55rem}} h3 {{font-size:1.25rem !important}}}}
+.hero {{position:relative;overflow:hidden;background:linear-gradient(125deg,#06483f 0%,#0e806b 58%,#1cb48b 100%);color:white;padding:2rem 2.2rem;border-radius:28px;margin:.5rem 0 1.2rem;box-shadow:0 20px 50px #073a2e30;animation:arrive .55s ease-out both}}
+.hero:after {{content:'✦';position:absolute;right:1.5rem;top:0;font-size:9rem;color:#eaffd31c;line-height:1;animation:float 5s ease-in-out infinite;pointer-events:none}}
+.hero .eyebrow {{font-size:.82rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#bff6d7}}
+.hero h1 {{color:white;margin:.25rem 0 .4rem;font-size:2.75rem;letter-spacing:-.055em;line-height:1.08;max-width:580px}}
+.hero p {{margin:0;color:#e3fff5;font-size:1.05rem;max-width:540px}}
+.hero .steps {{display:inline-block;margin-top:1.2rem;padding:.42rem .8rem;background:#ffffff20;border:1px solid #ffffff38;border-radius:100px;font-size:.85rem}}
+.hint {{padding:.85rem 1rem;background:{card};border:1px solid #5f8e8538;border-radius:15px;margin:.4rem 0 1rem;line-height:1.5}}
+[data-testid="stMetric"] {{background:{card};border:1px solid #5f8e8555;border-radius:18px;padding:1rem;box-shadow:0 8px 24px #092d2410;animation:arrive .4s ease-out both}}
+div.stButton > button, div.stDownloadButton > button {{min-height:3.1rem;border-radius:14px;transition:transform .18s ease,box-shadow .18s ease}}
+div.stButton > button:hover, div.stDownloadButton > button:hover {{transform:translateY(-2px);box-shadow:0 8px 22px #0b514326}}
+[data-testid="stFileUploader"], [data-testid="stCameraInput"] {{border-radius:18px;overflow:hidden}}
+[data-testid="stRadio"] label {{transition:transform .18s ease}}
+[data-testid="stRadio"] label:hover {{transform:translateY(-2px)}}
+@keyframes arrive {{from {{opacity:0;transform:translateY(12px)}} to {{opacity:1;transform:translateY(0)}}}}
+@keyframes float {{50% {{transform:translateY(9px) rotate(7deg)}}}}
+@media(prefers-reduced-motion:reduce) {{*,*:before,*:after {{animation:none !important;transition:none !important}}}}
+@media(max-width:600px) {{.block-container {{padding:.5rem .9rem 4rem}} .hero {{padding:1.5rem 1.25rem;border-radius:22px}} .hero h1 {{font-size:2rem}} .hero:after {{font-size:6rem;right:-.3rem}} h3 {{font-size:1.25rem !important}}}}
 {'''[data-testid="stAppViewContainer"] input, [data-testid="stAppViewContainer"] textarea {
 background:#22383b !important;color:#f2faf8 !important;}
 [data-testid="stAppViewContainer"] label, [data-testid="stAppViewContainer"] p {
 color:#e5f3f0 !important;}''' if st.session_state.dark else ''}
 </style>''', unsafe_allow_html=True)
 
-if st.button('☾ Modo escuro' if not st.session_state.dark else '☀ Modo claro',
+if st.button('☾ Escuro' if not st.session_state.dark else '☀ Claro',
              help='Alternar aparência'):
     st.session_state.dark = not st.session_state.dark
     st.rerun()
-st.markdown('<div class="hero"><h1>⚡ CustoClaro</h1><p>Foto da etiqueta → custo da energia em poucos passos.</p></div>', unsafe_allow_html=True)
+st.markdown('''<div class="hero"><span class="eyebrow">CustoClaro · leitura com IA</span>
+<h1>Da etiqueta ao custo, em poucos toques.</h1>
+<p>Fotografe a potência do aparelho, confira a leitura da IA e descubra quanto ele pode gastar.</p>
+<span class="steps">1 · Foto &nbsp; → &nbsp; 2 · Conferir &nbsp; → &nbsp; 3 · Calcular</span></div>''', unsafe_allow_html=True)
 
-st.subheader('Fotografe a etiqueta')
-st.caption('A potência precisa aparecer em W ou kW; só o código de barras não basta.')
-source = st.radio('Foto', ['Enviar foto', 'Usar câmera'], horizontal=True, label_visibility='collapsed')
-if source == 'Usar câmera':
-    uploaded = st.camera_input('Fotografe a etiqueta')
+mode = st.radio('O que você quer calcular?', ['📷 Um aparelho', '🏠 Energia da casa'],
+                horizontal=True, key='mode')
+if mode == '🏠 Energia da casa':
+    st.caption('Adicione um aparelho por vez. A soma aparece logo abaixo e fica apenas nesta sessão.')
+st.subheader('1. Fotografe a etiqueta')
+st.markdown('<div class="hint">Aponte para a <strong>placa de dados elétricos</strong> do aparelho: '
+            'lateral, parte de trás ou embaixo. Deixe visível o número seguido de <strong>W</strong> '
+            'ou <strong>kW</strong>. Uma foto só do código de barras não informa a potência.</div>',
+            unsafe_allow_html=True)
+source = st.radio('Como enviar a foto?', ['📸 Tirar foto agora', '🖼️ Escolher foto'],
+                  horizontal=True, index=1 if os.getenv('CUSTOCLARO_INITIAL_IMAGE') else 0)
+if source == '📸 Tirar foto agora':
+    uploaded = st.camera_input('Abrir câmera', key=f'camera_{st.session_state.photo_version}')
 else:
-    uploaded = st.file_uploader('Escolha a foto', type=['jpg', 'jpeg', 'png', 'webp'])
+    uploaded = st.file_uploader('Escolher imagem da etiqueta', type=['jpg', 'jpeg', 'png', 'webp'],
+                                key=f'photo_{st.session_state.photo_version}')
 initial_path = os.getenv('CUSTOCLARO_INITIAL_IMAGE')
-if uploaded is None and source == 'Enviar foto' and initial_path:
+if uploaded is None and source == '🖼️ Escolher foto' and initial_path and not st.session_state.initial_consumed:
     if st.checkbox('Usar foto escolhida no iniciador', value=True):
         try:
             file = Path(initial_path)
@@ -171,7 +258,7 @@ if fingerprint != st.session_state.fingerprint:
     st.session_state.chat = []
 
 api_key = configured_api_key()
-with st.expander('Ativar leitura por IA', expanded=bool(image_data and not api_key)):
+with st.expander('🔑 Chave para ler com IA', expanded=bool(image_data and not api_key)):
     user_key = st.text_input('Gemini API Key', type='password', help='Fica apenas nesta sessão e não aparece no CSV.')
     if user_key:
         from launcher import normalize_key
@@ -184,9 +271,9 @@ with st.expander('Ativar leitura por IA', expanded=bool(image_data and not api_k
     st.caption('A foto só é enviada ao Google quando você pede a leitura.')
 
 if image_data is not None and not api_key:
-    st.info('Para ler a foto, adicione a chave em “Ativar leitura por IA”. Ou informe a potência manualmente.')
+    st.info('Para ler a foto, abra “Chave para ler com IA”. Você também pode digitar os watts abaixo.')
 
-if image_data is not None and api_key and st.button('Ler potência da foto', type='primary', use_container_width=True):
+if image_data is not None and api_key and st.button('✨ Ler etiqueta com IA', type='primary', use_container_width=True):
     try:
         with st.spinner('Lendo a potência...'):
             result = read_label(*image_data, api_key=api_key)
@@ -218,7 +305,7 @@ if st.session_state.reading:
         st.caption(reading.notes)
 
 if st.session_state.reading:
-    st.subheader('Confira a potência')
+    st.subheader('2. Confira a leitura da IA')
     st.number_input('Potência (W)', min_value=0.0, max_value=1_000_000.0, step=10.0,
                     key='watts', on_change=power_changed)
 else:
@@ -227,7 +314,11 @@ else:
                         key='watts', on_change=power_changed)
 
 if st.session_state.watts > 0:
+    if mode == '🏠 Energia da casa':
+        st.text_input('Nome do aparelho', key='name')
     st.number_input('Minutos de uso por dia', min_value=0, max_value=1440, step=5, key='minutes')
+    if mode == '🏠 Energia da casa':
+        st.number_input('Quantos iguais?', min_value=1, max_value=1000, step=1, key='units')
     with st.expander('Ajustar tarifa e dias', expanded=False):
         st.write('**Tarifa da sua região**')
         st.caption('Localização apenas com sua permissão. Coordenadas aproximadas são consultadas no OpenStreetMap; confirme a distribuidora da sua conta.')
@@ -261,6 +352,7 @@ if st.session_state.watts > 0:
                             flag = None
                         extra = flag[1] if flag else Decimal(0)
                         st.session_state.tariff = float(official.per_kwh + extra)
+                        st.session_state.house_chat = []
                         flag_label = f' · bandeira {flag[0]}' if flag else ' · bandeira não confirmada'
                         st.session_state.tariff_source = f'ANEEL · {utility}{flag_label} · vigente até {official.ends:%d/%m/%Y}'
                         st.success(f'Tarifa base: R$ {pt_number(official.per_kwh, 3)}/kWh'
@@ -291,22 +383,89 @@ if st.session_state.watts > 0 and (not st.session_state.reading or st.session_st
     estimate = calculate_energy(watts=st.session_state.watts,
                                 hours_per_day=Decimal(st.session_state.minutes) / 60,
                                 days_per_month=st.session_state.days,
-                                tariff_per_kwh=st.session_state.tariff)
-    st.metric('Custo estimado/mês', brl(estimate.monthly_brl))
+                                tariff_per_kwh=st.session_state.tariff,
+                                units=st.session_state.units if mode == '🏠 Energia da casa' else 1)
+    st.subheader('3. Veja o resultado')
+    st.metric('Este aparelho por mês' if mode == '🏠 Energia da casa' else 'Custo estimado/mês',
+              brl(estimate.monthly_brl))
     st.write(f'**{pt_number(estimate.monthly_kwh)} kWh/mês** · **{brl(estimate.annual_brl)} em 12 meses**')
-    st.write(f'Cada uso de {st.session_state.minutes} minutos custa cerca de '
-             f'**{brl(estimate.monthly_brl / st.session_state.days)}**.')
+    st.write(f'Cada dia de uso custa cerca de **{brl(estimate.monthly_brl / st.session_state.days)}**.')
     with st.expander('Como chegamos a esse valor?'):
         st.write(f'{pt_number(estimate.watts, 0)} W × {st.session_state.minutes} min/dia × '
-                 f'{st.session_state.days} dias × R$ {pt_number(estimate.tariff_per_kwh, 5)}/kWh.')
+                 f'{st.session_state.days} dias × {estimate.units} unidade(s) × '
+                 f'R$ {pt_number(estimate.tariff_per_kwh, 5)}/kWh ÷ 60.000.')
         st.caption('Estimativa, não medição. Aparelhos com potência variável podem consumir diferente.')
-    st.download_button('Baixar resultado (CSV)',
-                       data=csv_report(st.session_state.name, estimate, st.session_state.source),
-                       file_name='custoclaro_resultado.csv', mime='text/csv', use_container_width=True)
+    if mode == '🏠 Energia da casa':
+        st.button('＋ Adicionar à minha casa', type='primary', use_container_width=True,
+                  on_click=add_to_house)
+    else:
+        st.download_button('Baixar resultado (CSV)',
+                           data=csv_report(st.session_state.name, estimate, st.session_state.source),
+                           file_name='custoclaro_resultado.csv', mime='text/csv', use_container_width=True)
 elif st.session_state.reading and not st.session_state.confirmed:
     st.info('Confira e confirme a potência para ver o custo.')
 
-if estimate is not None:
+if mode == '🏠 Energia da casa':
+    st.subheader('Minha casa')
+    if st.session_state.house:
+        if st.session_state.watts <= 0:
+            with st.expander('Ajustar tarifa da casa'):
+                st.number_input('Tarifa (R$/kWh)', min_value=0.0, max_value=1000.0,
+                                step=0.05, key='tariff', on_change=tariff_changed)
+                st.caption('Use o valor da sua conta. Tributos e iluminação pública podem não estar incluídos.')
+        house_rows = []
+        for item in st.session_state.house:
+            house_rows.append((item, calculate_energy(
+                watts=item['watts'], hours_per_day=Decimal(item['minutes']) / 60,
+                days_per_month=item['days'], tariff_per_kwh=st.session_state.tariff,
+                units=item['units'])))
+        st.metric('Total estimado por mês', brl(sum((result.monthly_brl for _, result in house_rows), Decimal(0))))
+        st.caption(f'{pt_number(sum((result.monthly_kwh for _, result in house_rows), Decimal(0)))} kWh/mês '
+                   f'· {len(house_rows)} aparelho(s) · tarifa R$ {pt_number(st.session_state.tariff, 5)}/kWh')
+        for index, (item, result) in enumerate(house_rows):
+            left, right = st.columns([4, 1])
+            left.write(f"**{item['name']}** · {item['units']} × {pt_number(item['watts'], 0)} W "
+                       f"· {item['minutes']} min/dia · **{brl(result.monthly_brl)}/mês**")
+            if right.button('✕', key=f'remove_{index}', help=f"Remover {item['name']}"):
+                st.session_state.house = [row for i, row in enumerate(st.session_state.house) if i != index]
+                st.session_state.house_chat = []
+                st.rerun()
+        st.download_button('Baixar cálculo da casa (CSV)',
+                           data=household_report(st.session_state.house, st.session_state.tariff),
+                           file_name='custoclaro_casa.csv', mime='text/csv', use_container_width=True)
+        st.caption('Total aproximado dos aparelhos adicionados; a conta real pode incluir outros consumos, impostos e taxas.')
+        st.subheader('✨ Pergunte à IA sobre sua casa')
+        st.caption('Ex.: “qual consome mais?” ou “como reduzir o consumo?”')
+        for role, message in st.session_state.house_chat[-6:]:
+            with st.chat_message(role):
+                st.write(message)
+        if question := st.chat_input('Pergunte sobre os aparelhos da casa'):
+            local = household_reply(question, house_rows)
+            if api_key and not any(word in question.casefold() for word in
+                                   ('mais', 'maior', 'gasta', 'consome', 'prioridade', 'total')):
+                context = (f'Total da casa: {brl(sum((result.monthly_brl for _, result in house_rows), Decimal(0)))}/mês; '
+                           f'{len(house_rows)} itens. Maiores consumos: ' + '; '.join(
+                    f"{item['name']}: {pt_number(result.monthly_kwh)} kWh/mês, "
+                    f'{brl(result.monthly_brl)}/mês' for item, result in
+                    sorted(house_rows, key=lambda pair: pair[1].monthly_kwh, reverse=True)[:10]))
+                try:
+                    with st.spinner('Analisando sua casa...'):
+                        answer = answer_about_estimate(question, context, api_key=api_key)
+                except Exception:
+                    answer = local
+                    st.caption('IA indisponível agora. Resposta baseada nos cálculos locais.')
+            else:
+                answer = local
+            st.session_state.house_chat = (st.session_state.house_chat +
+                                           [('user', question), ('assistant', answer)])[-6:]
+            with st.chat_message('user'):
+                st.write(question)
+            with st.chat_message('assistant'):
+                st.write(answer)
+    else:
+        st.caption('Sua lista está vazia. Leia uma etiqueta ou informe os watts e toque em “Adicionar à minha casa”.')
+
+if estimate is not None and mode == '📷 Um aparelho':
     st.subheader('Pergunte sobre esta conta')
     st.caption('Pergunte “e se usar 5 minutos?” ou “por que o valor é uma estimativa?”.')
     if api_key:
