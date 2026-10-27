@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import time
 from dataclasses import dataclass
 from decimal import Decimal
 
@@ -13,6 +14,7 @@ from core import as_decimal
 DEFAULT_MODEL = "gemma-4-26b-a4b-it"
 SUPPORTED_MIME_TYPES = {"image/jpeg", "image/png", "image/webp"}
 MAX_UPLOAD_BYTES = 8 * 1024 * 1024
+TRANSIENT_API_STATUS = {500, 502, 503, 504}
 
 
 def configured_api_key() -> str | None:
@@ -160,14 +162,23 @@ def read_label(
     from google.genai import types
 
     with genai.Client(api_key=key) as client:
-        response = client.models.generate_content(
-            model=model,
-            contents=[
-                PROMPT,
-                types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
-            ],
-            config=types.GenerateContentConfig(temperature=0),
-        )
+        for attempt in range(3):
+            try:
+                response = client.models.generate_content(
+                    model=model,
+                    contents=[
+                        PROMPT,
+                        types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
+                    ],
+                    config=types.GenerateContentConfig(temperature=0),
+                )
+                break
+            except Exception as exc:
+                status = getattr(exc, 'code', None) or getattr(exc, 'status_code', None)
+                status = getattr(status, 'value', status)
+                if attempt == 2 or status not in TRANSIENT_API_STATUS:
+                    raise
+                time.sleep(0.5 * (2 ** attempt))
     return parse_label_response(response.text or "", model=model)
 
 
