@@ -28,10 +28,16 @@ if __name__ == '__main__':
     key = configured_api_key()
     if not key:
         raise SystemExit('Defina GEMINI_API_KEY para executar este teste real; nenhuma chamada foi feita.')
+    failures = 0
     for name, label, expected in CASES:
         try:
             reading = read_label(make_image(label), 'image/jpeg', api_key=key)
             actual = int(reading.power_watts) if reading.power_watts is not None else None
-            print(f'{name}: esperado={expected}, modelo={actual}, evidencia={reading.evidence!r}, valido={actual==expected}')
+            valid = actual == expected
+            failures += not valid
+            print(f'{name}: esperado={expected}, modelo={actual}, evidencia={reading.evidence!r}, valido={valid}')
         except Exception as error:
+            failures += 1
             print(f'{name}: falha={type(error).__name__}; nenhum valor confirmado')
+    print(f'Resultado: {len(CASES) - failures}/{len(CASES)} leituras válidas.')
+    raise SystemExit(1 if failures else 0)
