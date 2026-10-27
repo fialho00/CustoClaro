@@ -6,6 +6,7 @@ import csv
 import hashlib
 import io
 import os
+from pathlib import Path
 
 import pandas as pd
 import streamlit as st
@@ -15,7 +16,7 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 from core import brl, calculate_energy, pt_number, safe_spreadsheet_text
 from vision import DEFAULT_MODEL, MAX_UPLOAD_BYTES, LabelReading, read_label
 
-load_dotenv()
+load_dotenv(Path(__file__).resolve().parent / ".env")
 
 st.set_page_config(
     page_title="CustoClaro | Entenda sua conta de luz",
@@ -69,7 +70,7 @@ def prepare_image(uploaded: object) -> tuple[bytes, str]:
             image.thumbnail((1600, 1600), Image.Resampling.LANCZOS)
             buffer = io.BytesIO()
             image.save(buffer, format="JPEG", quality=88, optimize=True)
-    except (UnidentifiedImageError, OSError, ValueError) as exc:
+    except (UnidentifiedImageError, Image.DecompressionBombError, OSError, ValueError) as exc:
         raise ValueError(f"Não foi possível ler essa imagem: {exc}") from exc
     return buffer.getvalue(), "image/jpeg"
 
@@ -165,6 +166,16 @@ with left:
         )
     else:
         uploaded = st.camera_input("Fotografe a etiqueta de potência")
+    initial_path = os.getenv("CUSTOCLARO_INITIAL_IMAGE")
+    if uploaded is None and mode == "Arquivo" and initial_path:
+        if st.checkbox("Usar imagem selecionada no iniciador", value=True):
+            try:
+                selected_path = Path(initial_path)
+                if selected_path.stat().st_size > MAX_UPLOAD_BYTES:
+                    raise ValueError("Imagem maior que 8 MB.")
+                uploaded = io.BytesIO(selected_path.read_bytes())
+            except (OSError, ValueError):
+                st.error("Nao foi possivel abrir a imagem selecionada. Escolha outro arquivo acima.")
     image_data: tuple[bytes, str] | None = None
     if uploaded is not None:
         try:
@@ -335,3 +346,4 @@ else:
 
 st.divider()
 st.caption("CustoClaro • Projeto open-source • Cálculos determinísticos + leitura assistida por Gemma 4")
+
