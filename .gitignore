@@ -7,3 +7,7 @@ __pycache__/
 *.py[cod]
 .DS_Store
 .streamlit/secrets.toml
+.env.local
+node_modules/
+dist/
+*.tsbuildinfo

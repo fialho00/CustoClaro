@@ -181,7 +181,7 @@ def read_label(
     return parse_label_response(response.text or "", model=model)
 
 
-def answer_about_estimate(question: str, context: str, *, api_key: str) -> str:
+def answer_about_estimate(question: str, context: str, *, api_key: str, model: str = DEFAULT_MODEL) -> str:
     """Explain one estimate; never delegate authoritative arithmetic to the model."""
     if not question.strip() or len(question) > 800:
         raise ValueError('Faça uma pergunta de até 800 caracteres.')
@@ -200,7 +200,7 @@ def answer_about_estimate(question: str, context: str, *, api_key: str) -> str:
     )
     with genai.Client(api_key=api_key) as client:
         response = client.models.generate_content(
-            model=DEFAULT_MODEL,
+            model=model,
             contents=f'Dados da simulação:\n{context[:1200]}\n\nPergunta: {question.strip()}',
             config=types.GenerateContentConfig(system_instruction=instruction, temperature=0.2),
         )

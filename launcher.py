@@ -1,12 +1,13 @@
-"""Local Windows launcher. API credentials remain in process memory only."""
+"""Open the CustoClaro web experience locally, without exposing API keys in the UI."""
+
 from pathlib import Path
-import getpass
 import os
 import re
-import subprocess
-import sys
+import threading
+import webbrowser
 
 ROOT = Path(__file__).resolve().parent
+LOCAL_URL = 'http://127.0.0.1:8501'
 
 
 def normalize_key(value: str) -> str:
@@ -19,54 +20,35 @@ def normalize_key(value: str) -> str:
     return value
 
 
-def main():
+def load_key_from_documents() -> str | None:
+    """Support the user's existing private Documents/.env without copying it."""
+    path = Path.home() / 'Documents' / '.env'
+    if not path.is_file():
+        return None
+    try:
+        for line in path.read_text(encoding='utf-8-sig').splitlines():
+            if re.match(r'^\s*(GEMINI_API_KEY|GOOGLE_API_KEY)\s*=', line):
+                return normalize_key(line.strip())
+    except (OSError, UnicodeError, ValueError):
+        pass
+    return None
+
+
+def main() -> None:
     os.chdir(ROOT)
-    print('CustoClaro - fotografe, confira e calcule.')
-    print('A chave fica somente na memoria durante esta execucao; nenhum .env sera criado.')
-    key = ''
-    while True:
-        print('\n1 - Abrir app\n2 - Inserir/trocar chave da API (opcional)\n3 - Escolher foto e abrir app\n0 - Sair')
-        choice = input('Opcao: ').strip()
-        if choice == '0':
-            return
-        if choice == '2':
-            try:
-                key = normalize_key(getpass.getpass('Cole a chave ou GEMINI_API_KEY=...: '))
-                print('Chave recebida somente nesta sessao. A validacao ocorre ao analisar a foto.')
-            except ValueError as error:
-                print(error)
-            continue
-        if choice not in ('1', '3'):
-            continue
-        env = os.environ.copy()
-        env.pop('GOOGLE_API_KEY', None)
-        env.pop('GEMINI_API_KEY', None)
+    if not (ROOT / 'dist' / 'index.html').is_file():
+        raise SystemExit('A interface ainda nao foi compilada. Execute Executavel.bat.')
+    if not os.getenv('GEMINI_API_KEY') and not os.getenv('GOOGLE_API_KEY'):
+        key = load_key_from_documents()
         if key:
-            env['GEMINI_API_KEY'] = key
-        if choice == '3':
-            try:
-                import tkinter as tk
-                from tkinter.filedialog import askopenfilename
-                window = tk.Tk(); window.withdraw()
-                try:
-                    selected = askopenfilename(title='Foto da etiqueta', filetypes=[('Imagens', '*.jpg *.jpeg *.png *.webp')])
-                finally:
-                    window.destroy()
-                if not selected:
-                    continue
-                env['CUSTOCLARO_INITIAL_IMAGE'] = selected
-            except Exception:
-                print('Seletor indisponivel. Envie a foto dentro do app.')
-        print('Abra a pagina mostrada no navegador. Para parar, pressione Ctrl+C.')
-        try:
-            subprocess.run([sys.executable, '-m', 'streamlit', 'run', str(ROOT / 'app.py'),
-                            '--server.address=127.0.0.1', '--server.headless=false',
-                            '--server.showEmailPrompt=false',
-                            '--browser.gatherUsageStats=false'], env=env, check=True)
-        except KeyboardInterrupt:
-            pass
-        except subprocess.CalledProcessError:
-            print('O app encerrou com erro. Confira a mensagem acima.')
+            os.environ['GEMINI_API_KEY'] = key
+    print(f'CustoClaro - abrindo {LOCAL_URL}')
+    print('A IA usa a chave do servidor. Nenhuma chave aparece no navegador.')
+    print('Para encerrar, pressione Ctrl+C nesta janela.')
+    threading.Timer(1.6, lambda: webbrowser.open(LOCAL_URL)).start()
+    import uvicorn
+    uvicorn.run('api.index:app', host='127.0.0.1', port=8501, log_level='warning')
+
 
 if __name__ == '__main__':
     main()
