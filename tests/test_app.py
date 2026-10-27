@@ -10,7 +10,7 @@ from streamlit.testing.v1 import AppTest
 from core import calculate_energy
 from vision import LabelReading
 from tariffs import OfficialTariff
-from app import csv_report, contextual_reply
+from app import csv_report, contextual_reply, household_report, household_reply
 
 APP_PATH = str(Path(__file__).resolve().parents[1] / 'app.py')
 
@@ -64,3 +64,33 @@ class StreamlitAppTests(unittest.TestCase):
             self.assertEqual(next(m.value for m in app.metric if m.label == 'Custo estimado/mês'), 'R$ 21,45')
             next(i for i in app.text_input if i.label == 'Distribuidora da sua conta').set_value('Outra').run(timeout=30)
             self.assertEqual(app.session_state['distributors'], [])
+
+    def test_house_adds_appliances_and_exports_total(self):
+        app = AppTest.from_file(APP_PATH).run(timeout=30)
+        next(r for r in app.radio if r.label == 'O que você quer calcular?').set_value('🏠 Energia da casa').run(timeout=30)
+        self.assertFalse(app.exception)
+        next(i for i in app.number_input if i.label == 'Potência (W)').set_value(5500.0).run(timeout=30)
+        next(i for i in app.text_input if i.label == 'Nome do aparelho').set_value('Chuveiro').run(timeout=30)
+        next(b for b in app.button if b.label == '＋ Adicionar à minha casa').click().run(timeout=30)
+        self.assertFalse(app.exception)
+        self.assertEqual(len(app.session_state['house']), 1)
+        self.assertEqual(next(m.value for m in app.metric if m.label == 'Total estimado por mês'), 'R$ 24,75')
+        next(i for i in app.number_input if i.label == 'Potência (W)').set_value(9.0).run(timeout=30)
+        next(i for i in app.text_input if i.label == 'Nome do aparelho').set_value('Lâmpada').run(timeout=30)
+        next(i for i in app.number_input if i.label == 'Quantos iguais?').set_value(2).run(timeout=30)
+        next(b for b in app.button if b.label == '＋ Adicionar à minha casa').click().run(timeout=30)
+        self.assertFalse(app.exception)
+        self.assertEqual(len(app.session_state['house']), 2)
+        self.assertEqual(next(m.value for m in app.metric if m.label == 'Total estimado por mês'), 'R$ 24,83')
+        report = household_report(app.session_state['house'], app.session_state['tariff']).decode('utf-8-sig').splitlines()
+        rows = list(csv.reader(report[1:], delimiter=';'))
+        self.assertEqual(len(rows), 4)
+        self.assertEqual(rows[-1][0], 'TOTAL')
+        self.assertEqual(rows[-1][-2], '24,83')
+        estimates = [(item, calculate_energy(watts=item['watts'],
+                      hours_per_day=Decimal(item['minutes']) / 60,
+                      days_per_month=item['days'], tariff_per_kwh=0.90,
+                      units=item['units'])) for item in app.session_state['house']]
+        self.assertIn('Chuveiro', household_reply('qual consome mais?', estimates))
+        next(b for b in app.button if b.label == '✕').click().run(timeout=30)
+        self.assertEqual(len(app.session_state['house']), 1)
