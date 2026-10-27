@@ -106,6 +106,10 @@ def power_changed() -> None:
 def tariff_changed() -> None:
     st.session_state.tariff_source = 'informada por você'
 
+
+def distributor_changed() -> None:
+    st.session_state.distributors = []
+
 # Deliberately do not persist keys, photos, conversation or calculations to disk.
 background = '#101b20' if st.session_state.dark else '#f7faf9'
 foreground = '#ecf6f4' if st.session_state.dark else '#172d2a'
@@ -175,6 +179,7 @@ with st.expander('Ativar leitura por IA', expanded=bool(image_data and not api_k
             api_key = normalize_key(user_key)
             st.success('Chave recebida. A conexão será testada ao analisar a foto.')
         except ValueError as exc:
+            api_key = None
             st.error(str(exc))
     st.caption('A foto só é enviada ao Google quando você pede a leitura.')
 
@@ -237,7 +242,8 @@ if st.session_state.watts > 0:
         if st.session_state.location_label:
             st.caption(f'Região aproximada: {st.session_state.location_label}. A localização não identifica sua distribuidora.')
         st.caption('Geocodificação: © OpenStreetMap contributors.')
-        utility_query = st.text_input('Distribuidora da sua conta', placeholder='Ex.: Neoenergia Brasília')
+        utility_query = st.text_input('Distribuidora da sua conta', placeholder='Ex.: Neoenergia Brasília',
+                                      on_change=distributor_changed)
         if st.button('Procurar tarifa oficial', disabled=len(utility_query.strip()) < 3):
             try:
                 st.session_state.distributors = search_distributors(utility_query)
@@ -270,7 +276,9 @@ if st.session_state.watts > 0:
                         step=0.00001 if official_rate else 0.05,
                         format='%.5f' if official_rate else '%.2f',
                         key='tariff', on_change=tariff_changed)
-        st.caption(f'Fonte: {st.session_state.tariff_source}. Tarifa base não inclui tributos, bandeira ou iluminação pública. '
+        st.caption(f'Fonte: {st.session_state.tariff_source}. Tributos e iluminação pública não incluídos; '
+                   f'a bandeira só entra se estiver indicada na fonte. '
+                   f'Em sistemas isolados, a bandeira pode não se aplicar. '
                    f'[Dados oficiais]({TARIFF_SOURCE}).')
 
 if st.session_state.watts > 0 and st.session_state.reading and not st.session_state.confirmed:
@@ -308,16 +316,15 @@ if estimate is not None:
             st.write(message)
     if question := st.chat_input('Pergunte sobre o custo deste aparelho'):
         numeric_question = bool(re.search(r'\d+(?:[.,]\d+)?\s*(?:minutos?|min|horas?|h)\b', question.casefold()))
-        if estimate is None or numeric_question or not api_key:
+        if numeric_question or not api_key:
             answer = contextual_reply(question, estimate, st.session_state.name)
         else:
             context = (f'Aparelho: {st.session_state.name}; potência: {pt_number(estimate.watts)} W; '
                        f'uso: {st.session_state.minutes} minutos/dia; dias: {st.session_state.days}; '
-                   f'tarifa: R$ {pt_number(estimate.tariff_per_kwh, 5)}/kWh; '
+                       f'tarifa: R$ {pt_number(estimate.tariff_per_kwh, 5)}/kWh; '
                        f'energia mensal: {pt_number(estimate.monthly_kwh)} kWh; '
                        f'custo mensal: {brl(estimate.monthly_brl)}; '
-                       f'12 meses iguais: {brl(estimate.annual_brl)}. '
-                       f'Leitura da foto: {st.session_state.reading.notes if st.session_state.reading else "nenhuma"}.')
+                       f'12 meses iguais: {brl(estimate.annual_brl)}.')
             try:
                 with st.spinner('Respondendo sobre sua conta...'):
                     answer = answer_about_estimate(question, context, api_key=api_key)
