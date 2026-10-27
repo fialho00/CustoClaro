@@ -30,7 +30,6 @@ import {
   ShoppingBag,
   ShieldCheck,
   SlidersHorizontal,
-  Sparkles,
   Trash2,
   Wallet,
   X,
@@ -106,7 +105,14 @@ function ErrorNote({
 function Brand({ small = false }: { small?: boolean }) {
   return (
     <div className={"brand " + (small ? "brand-small" : "")}>
-      <Bolt className="brand-mark" size={small ? 35 : 42} strokeWidth={2.2} />
+      <img
+        className="brand-logo"
+        src="/nomnom-logo.png"
+        alt=""
+        aria-hidden="true"
+        width={small ? 35 : 42}
+        height={small ? 35 : 42}
+      />
       <div>
         <div className="brand-name">
           Custo<span>Claro</span>
@@ -198,7 +204,6 @@ export default function App() {
   const [sending, setSending] = useState(false);
   const [productQuery, setProductQuery] = useState("");
   const [maxPrice, setMaxPrice] = useState("");
-  const [maxConsumption, setMaxConsumption] = useState("");
   const [hoursPerDay, setHoursPerDay] = useState("4");
   const [productSort, setProductSort] = useState("consumption");
   const [products, setProducts] = useState<ProductResult[]>([]);
@@ -431,7 +436,6 @@ export default function App() {
         hours_per_day: Number(hoursPerDay),
         days: draft.days,
         max_price: maxPrice ? Number(maxPrice) : null,
-        max_monthly_kwh: maxConsumption ? Number(maxConsumption) : null,
         sort: productSort,
       });
       setProducts(result.products);
@@ -1194,10 +1198,6 @@ export default function App() {
                       <input type="number" min="0.1" max="24" step="0.5"
                         value={hoursPerDay} onChange={(event) => setHoursPerDay(event.target.value)} />
                     </label>
-                    <label>Consumo máximo (kWh/mês)
-                      <input type="number" min="0.1" max="100000" step="1" placeholder="Qualquer consumo"
-                        value={maxConsumption} onChange={(event) => setMaxConsumption(event.target.value)} />
-                    </label>
                     <label>Ordenar por
                       <select value={productSort} onChange={(event) => setProductSort(event.target.value)}>
                         <option value="consumption">Menor consumo</option>
@@ -1212,9 +1212,6 @@ export default function App() {
                   </button>
                 </form>
                 {productError && <ErrorNote message={productError} close={() => setProductError("")} />}
-                {productError && <button className="outline-button" onClick={startManual}>
-                  <Pencil size={17} /> Calcular com a potência informada
-                </button>}
                 {productSearching && <p className="search-notice">A Nom Nom está procurando fichas de produtos e preços. Isso pode levar alguns segundos.</p>}
                 {productSearched && !products.length && (
                   <div className="empty-state">
@@ -1271,9 +1268,11 @@ export default function App() {
 
           {screen === "nomnom" && <section className="assistant card assistant-page" aria-label="Chat com a Nom Nom">
             <div className="assistant-heading">
-              <span className="assistant-symbol">
-                <Sparkles size={22} />
-              </span>
+              <img
+                className="assistant-avatar"
+                src="/nomnom-logo.png"
+                alt="Nom Nom, coala com capacete de eletricista"
+              />
               <div className="assistant-identity">
                 <h3>Nom Nom</h3>
                 <small>Sua assistente de energia e consumo</small>
@@ -1290,7 +1289,7 @@ export default function App() {
               {!messages.length && (
                 <div className="welcome-message">
                   <div className="bot-mark">
-                    <Bolt size={21} />
+                    <img src="/nomnom-logo.png" alt="" />
                   </div>
                   <div className="bubble assistant-bubble">
                     Oi! Eu sou a Nom Nom. Posso analisar uma etiqueta, explicar
@@ -1303,7 +1302,7 @@ export default function App() {
                 <div className={"message " + message.role} key={index}>
                   {message.role === "assistant" && (
                     <span className="bot-mark">
-                      <Bolt size={19} />
+                      <img src="/nomnom-logo.png" alt="" />
                     </span>
                   )}
                   <div className="bubble">{message.text}</div>
@@ -1312,7 +1311,7 @@ export default function App() {
               {sending && (
                 <div className="message assistant">
                   <span className="bot-mark">
-                    <Bolt size={19} />
+                    <img src="/nomnom-logo.png" alt="" />
                   </span>
                   <div className="bubble typing">
                     <i />
