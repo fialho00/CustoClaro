@@ -11,11 +11,13 @@ Foto da etiqueta elétrica → potência revisada → estimativa de custo. Proje
 5. No navegador, envie/tire a foto da etiqueta. Clique **Ler etiqueta com IA**, confira os W e confirme. Sem chave ou sem foto, digite os W manualmente.
 6. Informe **minutos de uso por dia**. O custo aparece logo abaixo. Tarifa e dias podem ser ajustados em **Ajustes**. A tarifa inicial R$ 0,90/kWh é apenas um exemplo.
 
-O chat inferior responde perguntas sobre **esta simulação** (por exemplo, “e se usar 5 minutos?”, “quanto no ano?”) com cálculos locais. Não é um chat geral e não substitui a leitura da foto.
+O chat inferior responde perguntas sobre **esta simulação**. Cenários como “e se usar 5 minutos?” são calculados localmente. Com chave de API, perguntas abertas sobre a etiqueta ou a estimativa usam Gemma 4 com os números já calculados; não é um chat geral.
 
 ## Privacidade
 
 O iniciador não cria `.env` e não salva chaves. A chave permanece na memória do processo/sessão durante o uso; fotos, mensagens e resultados não são gravados pelo código do app. Ao clicar em **Ler etiqueta com IA**, a imagem reduzida e sem EXIF é enviada à API do Google. Considere os termos e a política de dados do provedor antes de enviar imagens sensíveis. Uma foto previamente escolhida já existe no local original do usuário. Arquivos `.env` criados por versões antigas não são lidos pelo app atual: remova-os você mesmo se não precisar deles. O CSV só inclui os dados do cálculo, sem a chave ou a foto.
+
+No chat com IA, cada pergunta aberta envia a pergunta e os números da simulação à API do Google. O histórico completo do chat não é enviado pelo código do app. Sem chave, o chat oferece respostas locais limitadas.
 
 ## Resultados e limites
 
