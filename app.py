@@ -13,7 +13,7 @@ import streamlit as st
 from PIL import Image, ImageOps, UnidentifiedImageError
 
 from core import brl, calculate_energy, pt_number, safe_spreadsheet_text
-from vision import MAX_UPLOAD_BYTES, DEFAULT_MODEL, LabelReading, read_label, configured_api_key
+from vision import MAX_UPLOAD_BYTES, LabelReading, read_label, configured_api_key, answer_about_estimate
 
 st.set_page_config(page_title='CustoClaro', page_icon='⚡', layout='centered', initial_sidebar_state='collapsed')
 
@@ -238,13 +238,31 @@ if st.session_state.watts > 0 and (not st.session_state.reading or st.session_st
 else:
     st.info('Envie uma foto e confirme a potência, ou digite os watts para simular sem IA.')
 
-st.subheader('Pergunte sobre o resultado')
-st.caption('Ex.: “E se eu usar 10 minutos?”, “Quanto no ano?”')
+st.subheader('Dúvidas sobre esta conta')
+st.caption('Pergunte “e se usar 5 minutos?” ou “por que o valor é uma estimativa?”.')
+if api_key:
+    st.caption('Perguntas abertas enviam a pergunta e os números desta simulação à API do Google. Comparações de minutos são calculadas aqui.')
 for role, message in st.session_state.chat[-6:]:
     with st.chat_message(role):
         st.write(message)
 if question := st.chat_input('Pergunte sobre o custo deste aparelho'):
-    answer = contextual_reply(question, estimate, st.session_state.name)
+    numeric_question = bool(re.search(r'\d+(?:[.,]\d+)?\s*(?:minutos?|min|horas?|h)\b', question.casefold()))
+    if estimate is None or numeric_question or not api_key:
+        answer = contextual_reply(question, estimate, st.session_state.name)
+    else:
+        context = (f'Aparelho: {st.session_state.name}; potência: {pt_number(estimate.watts)} W; '
+                   f'uso: {st.session_state.minutes} minutos/dia; dias: {st.session_state.days}; '
+                   f'tarifa: R$ {pt_number(estimate.tariff_per_kwh)}/kWh; '
+                   f'energia mensal: {pt_number(estimate.monthly_kwh)} kWh; '
+                   f'custo mensal: {brl(estimate.monthly_brl)}; '
+                   f'12 meses iguais: {brl(estimate.annual_brl)}. '
+                   f'Leitura da foto: {st.session_state.reading.notes if st.session_state.reading else "nenhuma"}.')
+        try:
+            with st.spinner('Respondendo sobre sua conta...'):
+                answer = answer_about_estimate(question, context, api_key=api_key)
+        except Exception:
+            answer = contextual_reply(question, estimate, st.session_state.name)
+            st.caption('IA indisponível agora. Resposta baseada apenas nos cálculos locais.')
     st.session_state.chat = (st.session_state.chat + [('user', question), ('assistant', answer)])[-6:]
     with st.chat_message('user'):
         st.write(question)
