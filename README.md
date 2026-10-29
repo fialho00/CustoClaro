@@ -2,7 +2,7 @@
 
 **Entenda sua energia. Economize com ajuda da Nom Nom.**
 
-Projeto do Hack Day desenvolvido por **Alexandre Bezerra, Maria Eduarda e Gabriel Fialho**. O WattCola ajuda a transformar informações de eletrodomésticos em estimativas compreensíveis de consumo e gasto — com uma IA dedicada ao assunto e cálculos reproduzíveis.
+Projeto do Hack Day desenvolvido por **Gabriel Fialho, Alexandre Bezerra e Maria Eduarda **. O WattCola ajuda a transformar informações de eletrodomésticos em estimativas compreensíveis de consumo e gasto — com uma IA dedicada ao assunto e cálculos reproduzíveis.
 
 **Acesse o aplicativo:** [wattcola.vercel.app](https://wattcola.vercel.app).
 
